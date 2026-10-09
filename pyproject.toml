@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deeper-maigret"
+version = "0.2.0"
+description = "A black and cyan, JavaScript-free web interface for Maigret"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE", "LICENSE-MAIGRET"]
+readme = "README.md"
+authors = [{name = "Deeper contributors"}]
+dependencies = ["Flask==3.1.3", "maigret==0.6.6", "waitress==3.0.2"]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1", "beautifulsoup4==4.15.0"]
+visual = ["playwright==1.63.0"]
+
+[project.scripts]
+deeper = "deeper.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["deeper*"]
+
+[tool.setuptools.package-data]
+deeper = ["templates/*.html", "static/*.css", "static/*.svg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"

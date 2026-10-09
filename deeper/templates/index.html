@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Deeper: encontre perfis públicos por nome de usuário com Maigret.">
+  <meta name="robots" content="noindex, nofollow">
+  {% if job and job.state in ('queued', 'running') %}<meta http-equiv="refresh" content="3">{% endif %}
+  <title>Deeper{% if job %} · {{ username }}{% endif %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='deeper.css') }}">
+</head>
+<body>
+  <main class="workspace{% if job or error %} has-results{% endif %}">
+    <div class="search-area">
+      <h1><a class="wordmark" href="{{ url_for('home') }}" aria-label="Deeper, início">Deeper</a></h1>
+      <form class="search-bar" action="{{ url_for('search') }}" method="post" role="search">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label class="visually-hidden" for="username">Nome de usuário</label>
+        <input id="username" type="search" name="username" placeholder="Nome de usuário" value="{{ username }}"
+               maxlength="65" required autocomplete="off" autocapitalize="none" spellcheck="false"
+               {% if error %}aria-invalid="true" aria-describedby="search-error"{% endif %}>
+        <button type="submit" aria-label="Pesquisar">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.7" cy="10.7" r="6.7"/><path d="m16 16 4.2 4.2"/></svg>
+        </button>
+      </form>
+    </div>
+    {% if error %}<p id="search-error" class="message error" role="alert">{{ error }}</p>{% endif %}
+    {% if job %}
+    <section class="results" aria-label="Resultados da busca" aria-busy="{{ 'true' if job.state in ('queued', 'running') else 'false' }}">
+      {% if job.cache_age is not none %}<p class="result-note">Resultados reutilizados desta sessão · obtidos há {{ job.cache_age }}s.</p>{% endif %}
+      {% if job.state in ('queued', 'running') %}
+      <div class="search-status" role="status">
+        <span class="scanner" aria-hidden="true"></span>
+        <div><h2>{{ 'Aguardando para buscar' if job.state == 'queued' else 'Buscando' }} <span>@{{ username }}</span></h2>
+          <p>{% if job.total %}{{ job.checked }} de {{ job.total }} sites verificados{% else %}Preparando os sites{% endif %} <span class="separator">·</span> {{ job.elapsed }}s</p>
+        </div>
+        <a class="refresh-link" href="{{ url_for('results', token=request.view_args.token) }}">Atualizar</a>
+      </div>
+      <progress aria-label="Sites verificados" value="{{ job.checked }}" max="{{ job.total or 1 }}"></progress>
+      {% endif %}
+      {% if job.state == 'partial' %}<p class="message" role="status">O tempo da busca terminou. Os resultados obtidos até agora estão abaixo.</p>{% endif %}
+      {% if job.state == 'error' %}<p class="message error" role="alert">{{ job.error }}</p>{% endif %}
+      {% if job.profiles or job.state not in ('queued', 'running') %}
+      <div class="results-heading">
+        <h2><span class="result-count">{{ job.profiles | length }}</span> {{ 'perfil encontrado' if job.profiles | length == 1 else 'perfis encontrados' }}</h2>
+        <p>{{ job.checked }}{% if job.total %}/{{ job.total }}{% endif %} sites <span class="separator">·</span> {{ job.elapsed }}s</p>
+      </div>
+      {% endif %}
+      {% if job.profiles %}
+      <div class="profile-grid">
+        {% for profile in job.profiles %}
+        <article class="profile">
+          <div class="profile-top">
+            <h3>{% if profile.url | safe_url %}<a class="profile-link" href="{{ profile.url }}" target="_blank" rel="noopener noreferrer">{{ profile.name }}</a>{% else %}{{ profile.name }}{% endif %}</h3>
+            {% if profile.similar %}<span class="tag">Aproximado</span>{% endif %}
+          </div>
+          <p class="profile-url">{{ profile.url if profile.url | safe_url else '' }}</p>
+          {% if profile.tags %}<ul class="tags" aria-label="Categorias">{% for tag in profile.tags %}<li>{{ tag }}</li>{% endfor %}</ul>{% endif %}
+          {% if profile.details %}<dl class="profile-details">{% for detail in profile.details %}<div><dt>{{ detail.label }}</dt><dd>{{ detail.value }}</dd></div>{% endfor %}</dl>{% endif %}
+          {% if profile.links %}<ul class="profile-links" aria-label="Links do perfil">{% for link in profile.links %}{% if link | safe_url %}<li><a href="{{ link }}" target="_blank" rel="noopener noreferrer">{{ link }}</a></li>{% endif %}{% endfor %}</ul>{% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      <p class="result-note">Um mesmo nome de usuário pode pertencer a pessoas diferentes.</p>
+      {% elif job.state not in ('queued', 'running') %}
+      <div class="empty-state"><h3>Nenhum perfil identificado</h3><p>Confira o nome de usuário ou tente outra pesquisa.</p></div>
+      {% endif %}
+      {% if job.unknown %}<p class="result-note">{{ job.unknown }} {{ 'verificação inconclusiva' if job.unknown == 1 else 'verificações inconclusivas' }}. Sites indisponíveis ou bloqueados não confirmam a ausência de um perfil.</p>{% endif %}
+      {% if job.state == 'partial' and job.total > job.checked %}<p class="result-note">{{ job.total - job.checked }} sites não concluíram a verificação dentro do prazo.</p>{% endif %}
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>

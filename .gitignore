@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+build/
+dist/
+.superpowers/
+
+# Local environment and deployment configuration; never publish credentials or VPS details.
+.env*
+ionos-proxy.conf
+
+# Local prompts and internal working material are not part of the public project.
+PROMPT*.md
+docs/WORK_LEDGER.md
+docs/evidence/
+docs/superpowers/
+MANIFEST.sha256
