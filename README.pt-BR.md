@@ -43,10 +43,8 @@ curl -fsS http://127.0.0.1:8080/health
 
 Abra <http://127.0.0.1:8080>. Acompanhe a inicialização com
 `docker compose logs -f deeper` e pare o serviço com `docker compose down`.
-O código está espelhado no [Git SecurityOps](https://git.securityops.co/cristiancmoises/deeper),
-[Git SecurityOps BR](https://git.securityops.com.br/cristiancmoises/deeper),
-[GitHub](https://github.com/cristiancmoises/deeper) e
-[Codeberg](https://codeberg.org/berkeley/deeper).
+O repositório público do código está no
+[GitHub](https://github.com/cristiancmoises/deeper).
 
 Para uma VPS pequena, crie um arquivo `.env` local ao lado de `compose.yaml`:
 

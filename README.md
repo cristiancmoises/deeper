@@ -42,10 +42,8 @@ curl -fsS http://127.0.0.1:8080/health
 
 Open <http://127.0.0.1:8080>. Follow startup output with
 `docker compose logs -f deeper`, and stop the service with `docker compose down`.
-The source is mirrored on [SecurityOps Git](https://git.securityops.co/cristiancmoises/deeper),
-[SecurityOps Git BR](https://git.securityops.com.br/cristiancmoises/deeper),
-[GitHub](https://github.com/cristiancmoises/deeper), and
-[Codeberg](https://codeberg.org/berkeley/deeper).
+The public source repository is on
+[GitHub](https://github.com/cristiancmoises/deeper).
 
 For a small VPS, create a local `.env` file beside `compose.yaml` with:
 
