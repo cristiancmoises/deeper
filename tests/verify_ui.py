@@ -1,22 +1,60 @@
 """Run visual/native-form QA; Playwright is a test tool, never a page script."""
 import argparse
 import asyncio
-from contextlib import contextmanager
 import json
-from pathlib import Path
 import sys
 import threading
+import time
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from maigret.sites import MaigretSite
 from playwright.sync_api import sync_playwright
+from test_engine import synthetic_sites
 from waitress import create_server
 
 from deeper.app import create_app
 from deeper.config import Settings
 from deeper.engine import search_username
 from deeper.jobs import JobManager
-from test_engine import synthetic_sites
+
+
+@contextmanager
+def progressive_sites():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith('/fast/'):
+                self.send_response(200)
+                body = b'<html><h1>progressive_user</h1></html>'
+            else:
+                time.sleep(4)
+                self.send_response(503)
+                body = b'Synthetic delayed site'
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f'http://127.0.0.1:{server.server_port}'
+    sites = {name: MaigretSite(name, {
+        'urlMain': base, 'url': f'{base}/{path}/{{username}}',
+        'checkType': 'status_code', 'requestHeadOnly': False,
+        'disabled': False, 'tags': ['synthetic'],
+    }) for name, path in [('Fast', 'fast'), ('Slow', 'slow')]}
+    try:
+        yield sites
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
 def main():
@@ -27,11 +65,38 @@ def main():
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     evidence = {'javascript_enabled': False, 'engine': 'maigret 0.6.6', 'source': 'local synthetic HTTP sites', 'views': []}
-    with contextmanager(synthetic_sites.__wrapped__)() as sites:
-        settings = Settings(site_timeout=2, search_timeout=10, secret_key='synthetic-qa-session')
+    with contextmanager(synthetic_sites.__wrapped__)() as sites, progressive_sites() as live_sites:
+        settings = Settings(site_timeout=6, search_timeout=12, secret_key='synthetic-qa-session')
+        hostile_started = threading.Event()
+        hostile_release = threading.Event()
+        retry_started = threading.Event()
+        retry_release = threading.Event()
 
         def runner(username, config, emit):
-            return asyncio.run(search_username(username, config, emit, sites=sites))
+            if username == 'hostile':
+                hostile_started.set()
+                if not hostile_release.wait(8):
+                    raise TimeoutError()
+                profile = {
+                    'name': '<img src=x onerror=alert(1)>',
+                    'url': 'javascript:alert(1)',
+                    'tags': ['<svg onload=alert(1)>'],
+                    'details': [{'label': '<script>', 'value': '<b>unsafe text</b>'}],
+                    'links': ['javascript:alert(1)', 'https://example.org/safe'],
+                    'similar': False,
+                }
+                emit({'state': 'running', 'checked': 1, 'total': 1,
+                      'unknown': 0, 'profiles_delta': [profile]})
+                return {'state': 'done', 'checked': 1, 'total': 1,
+                        'unknown': 0, 'profiles': [profile]}
+            if username == 'retry':
+                retry_started.set()
+                if not retry_release.wait(10):
+                    raise TimeoutError()
+                return {'state': 'done', 'checked': 2, 'total': 2,
+                        'unknown': 2, 'profiles': []}
+            selected_sites = live_sites if username.startswith('progressive_') else sites
+            return asyncio.run(search_username(username, config, emit, sites=selected_sites))
 
         with JobManager(settings, runner=runner) as manager:
             app = create_app(settings, manager)
@@ -49,7 +114,8 @@ def main():
                         context = browser.new_context(java_script_enabled=False, viewport=viewport)
                         page = context.new_page()
                         script_requests = []
-                        page.on('request', lambda request: script_requests.append(request.url)
+                        page.on('request', lambda request, script_requests=script_requests:
+                                script_requests.append(request.url)
                                 if request.resource_type == 'script' else None)
                         assert page.goto(base).status == 200
                         assert page.locator('script').count() == 0
@@ -68,7 +134,15 @@ def main():
                         page.screenshot(path=str(output / f'home-{name}.png'))
                         page.get_by_role('searchbox', name='Nome de usuário').fill('synthetic_profile')
                         page.get_by_role('searchbox', name='Nome de usuário').press('Enter')
-                        page.locator('.profile-link').wait_for(state='visible', timeout=12000)
+                        refresh_deadline = time.monotonic() + 12
+                        while (page.locator('.profile-link').count() == 0
+                               and time.monotonic() < refresh_deadline):
+                            refresh = page.locator('a.refresh-link')
+                            if refresh.count() == 0:
+                                break
+                            refresh.click()
+                            page.wait_for_timeout(250)
+                        page.locator('.profile-link').wait_for(state='visible', timeout=1000)
                         assert page.locator('.profile-link').count() == 1
                         assert page.locator('.profile-link').get_attribute('href').endswith('/found/synthetic_profile')
                         assert '1 verificação inconclusiva' in page.locator('body').inner_text()
@@ -82,6 +156,191 @@ def main():
                             'home_only_title_and_search': True, 'native_enter_search': True,
                             'real_engine_profiles': 1, 'unknown_sites': 1, 'script_requests': 0,
                             'horizontal_overflow': False, 'background': layout['background']})
+
+                    evidence['javascript_enabled'] = True
+                    evidence['incremental_updates'] = []
+                    for name, viewport in [('desktop', {'width': 1440, 'height': 900}),
+                                           ('mobile', {'width': 390, 'height': 844})]:
+                        context = browser.new_context(java_script_enabled=True, viewport=viewport)
+                        page = context.new_page()
+                        console_issues = []
+                        page.on('console', lambda message, console_issues=console_issues:
+                                console_issues.append(message.text)
+                                if message.type in ('error', 'warning') else None)
+                        page.on('pageerror', lambda error, console_issues=console_issues:
+                                console_issues.append(str(error)))
+                        network = {'inflight': 0, 'maximum': 0, 'requests': 0}
+                        navigations = []
+
+                        def update_started(request, network=network):
+                            if '/updates' in request.url:
+                                network['inflight'] += 1
+                                network['requests'] += 1
+                                network['maximum'] = max(network['maximum'], network['inflight'])
+
+                        def update_finished(request, network=network):
+                            if '/updates' in request.url:
+                                network['inflight'] -= 1
+
+                        page.on('request', update_started)
+                        page.on('requestfinished', update_finished)
+                        page.on('requestfailed', update_finished)
+                        update_responses = []
+
+                        def record_update_response(response, update_responses=update_responses):
+                            if '/updates' not in response.url:
+                                return
+                            payload = response.json()
+                            update_responses.append({
+                                'status': response.status,
+                                'after': parse_qs(urlsplit(response.url).query).get('after'),
+                                'state': payload.get('state'),
+                                'checked': payload.get('checked'),
+                                'total': payload.get('total'),
+                                'cursor': payload.get('cursor'),
+                                'unknown': payload.get('unknown'),
+                                'elapsed': payload.get('elapsed'),
+                                'error': payload.get('error'),
+                                'profiles': len(payload.get('profiles', [])),
+                                'profile_shapes': [{
+                                    'keys': sorted(profile),
+                                    'name_type': type(profile.get('name')).__name__,
+                                    'tags_type': type(profile.get('tags')).__name__,
+                                    'details_shape': [sorted(item) if isinstance(item, dict)
+                                                      else type(item).__name__
+                                                      for item in profile.get('details', [])],
+                                    'links_type': type(profile.get('links')).__name__,
+                                    'similar_type': type(profile.get('similar')).__name__,
+                                } for profile in payload.get('profiles', [])],
+                            })
+
+                        page.on('response', record_update_response)
+                        page.on('framenavigated', lambda frame, navigations=navigations, page=page:
+                                navigations.append(frame.url)
+                                if frame == page.main_frame else None)
+                        delayed = {'done': False}
+
+                        def delay_first_update(route, _request=None, delayed=delayed):
+                            if not delayed['done']:
+                                delayed['done'] = True
+                                time.sleep(1.25)
+                            route.continue_()
+
+                        page.route('**/updates*', delay_first_update)
+                        landing_response = page.goto(base)
+                        assert landing_response is not None and landing_response.status == 200
+                        started_at = time.monotonic()
+                        username = f'progressive_{name}'
+                        page.get_by_role('searchbox', name='Nome de usuário').fill(username)
+                        page.get_by_role('searchbox', name='Nome de usuário').press('Enter')
+                        page.locator('.results').wait_for(state='attached')
+                        results_url = page.url
+                        result_navigation_count = len(navigations)
+                        page.locator('.profile[data-profile-name="Fast"]').wait_for(
+                            state='visible', timeout=9000)
+                        initial_cursor = page.locator('.results').get_attribute('data-cursor')
+                        assert initial_cursor is not None
+                        expected_cursor = int(initial_cursor)
+                        for update_response in update_responses:
+                            assert update_response['after'] == [str(expected_cursor)], update_responses
+                            expected_cursor = update_response['cursor']
+                        profile_time = time.monotonic() - started_at
+                        assert profile_time < 3.5, profile_time
+                        assert page.locator('.results').get_attribute('aria-busy') == 'true'
+                        progress = page.locator('progress')
+                        checked = progress.evaluate('(element) => element.value')
+                        total = progress.evaluate('(element) => element.max')
+                        assert 0 < checked < total, (checked, total)
+                        assert page.locator('.result-count').inner_text() == '1'
+                        assert page.url == results_url
+                        assert len(navigations) == result_navigation_count
+                        assert network['maximum'] == 1, network
+                        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                        page.screenshot(path=str(output / f'progress-{name}.png'), full_page=True)
+                        terminal_deadline = time.monotonic() + settings.search_timeout + 2
+                        while (page.locator('.results').get_attribute('aria-busy') != 'false'
+                               and time.monotonic() < terminal_deadline):
+                            page.wait_for_timeout(100)
+                        assert page.locator('.results').get_attribute('aria-busy') == 'false', {
+                            'network': network,
+                            'updates': update_responses[-5:],
+                            'status': page.locator('[data-update-status]').inner_text(),
+                            'errors': page.locator('[data-update-error]').inner_text(),
+                            'console': console_issues,
+                        }
+                        terminal_requests = network['requests']
+                        page.wait_for_timeout(1300)
+                        assert network['requests'] == terminal_requests
+                        assert page.url == results_url
+                        assert len(navigations) == result_navigation_count
+                        assert not console_issues, console_issues
+                        evidence['incremental_updates'].append({
+                            'name': name, 'viewport': viewport,
+                            'profile_before_slow_site_finished': True,
+                            'profile_seconds': round(profile_time, 3),
+                            'progress_checked_before_terminal': checked,
+                            'progress_total': total,
+                            'max_inflight_updates': network['maximum'],
+                            'polling_stopped_at_terminal': True,
+                            'page_reloads_after_results': 0,
+                            'horizontal_overflow': False,
+                            'console_issues': console_issues,
+                        })
+                        context.close()
+
+                    hostile_context = browser.new_context(java_script_enabled=True,
+                        viewport={'width': 1024, 'height': 768})
+                    hostile_page = hostile_context.new_page()
+                    hostile_page.goto(base)
+                    hostile_page.get_by_role('searchbox', name='Nome de usuário').fill('hostile')
+                    hostile_page.get_by_role('searchbox', name='Nome de usuário').press('Enter')
+                    hostile_page.locator('.results').wait_for(state='attached')
+                    assert hostile_started.wait(3)
+                    try:
+                        hostile_release.set()
+                        hostile_card = hostile_page.locator('.profile')
+                        hostile_card.wait_for(state='visible', timeout=5000)
+                        assert hostile_card.locator('h3').inner_text() == '<img src=x onerror=alert(1)>'
+                        assert hostile_card.locator('dd').inner_text() == '<b>unsafe text</b>'
+                        assert hostile_card.locator('li').first.inner_text() == '<svg onload=alert(1)>'
+                        assert hostile_card.locator('img,svg,script:not([src])').count() == 0
+                        assert hostile_card.locator('a[href^="javascript:"]').count() == 0
+                        safe_link = hostile_card.locator('a[href="https://example.org/safe"]')
+                        assert safe_link.get_attribute('target') == '_blank'
+                        assert safe_link.get_attribute('rel') == 'noopener noreferrer'
+                        evidence['hostile_content_inert'] = True
+                    finally:
+                        hostile_release.set()
+                        hostile_context.close()
+
+                    retry_context = browser.new_context(java_script_enabled=True,
+                        viewport={'width': 1024, 'height': 768})
+                    retry_page = retry_context.new_page()
+                    failures = {'count': 0}
+
+                    def fail_update(route):
+                        failures['count'] += 1
+                        route.fulfill(status=503, content_type='application/json', body='{}')
+
+                    retry_page.route('**/updates*', fail_update)
+                    retry_page.goto(base)
+                    retry_page.get_by_role('searchbox', name='Nome de usuário').fill('retry')
+                    retry_page.get_by_role('searchbox', name='Nome de usuário').press('Enter')
+                    retry_page.locator('.results').wait_for(state='attached')
+                    assert retry_started.wait(3)
+                    try:
+                        retry_page.locator('[data-update-error]').wait_for(
+                            state='visible', timeout=7000)
+                        assert 'atualize a página' in retry_page.locator(
+                            '[data-update-error]').inner_text().lower()
+                        assert failures['count'] == 3, failures
+                        retry_page.wait_for_timeout(1300)
+                        assert failures['count'] == 3, failures
+                        evidence['polling_stops_after_failures'] = failures['count']
+                    finally:
+                        retry_release.set()
+                        retry_context.close()
+
                     context = browser.new_context(java_script_enabled=False,
                         viewport={'width': 320, 'height': 720}, reduced_motion='reduce')
                     page = context.new_page()

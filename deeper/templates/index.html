@@ -7,7 +7,6 @@
   <meta name="theme-color" content="#000000">
   <meta name="description" content="Deeper: encontre perfis públicos por nome de usuário com Maigret.">
   <meta name="robots" content="noindex, nofollow">
-  {% if job and job.state in ('queued', 'running') %}<meta http-equiv="refresh" content="3">{% endif %}
   <title>Deeper{% if job %} · {{ username }}{% endif %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='deeper.css') }}">
@@ -29,30 +28,30 @@
     </div>
     {% if error %}<p id="search-error" class="message error" role="alert">{{ error }}</p>{% endif %}
     {% if job %}
-    <section class="results" aria-label="Resultados da busca" aria-busy="{{ 'true' if job.state in ('queued', 'running') else 'false' }}">
+    <section class="results" aria-label="Resultados da busca" aria-busy="{{ 'true' if job.state in ('queued', 'running') else 'false' }}"{% if job.state in ('queued', 'running') %} data-updates-url="{{ url_for('search_updates', token=request.view_args.token) }}" data-cursor="{{ job.cursor }}"{% endif %}>
       {% if job.cache_age is not none %}<p class="result-note">Resultados reutilizados desta sessão · obtidos há {{ job.cache_age }}s.</p>{% endif %}
       {% if job.state in ('queued', 'running') %}
       <div class="search-status" role="status">
         <span class="scanner" aria-hidden="true"></span>
         <div><h2>{{ 'Aguardando para buscar' if job.state == 'queued' else 'Buscando' }} <span>@{{ username }}</span></h2>
-          <p>{% if job.total %}{{ job.checked }} de {{ job.total }} sites verificados{% else %}Preparando os sites{% endif %} <span class="separator">·</span> {{ job.elapsed }}s</p>
+          <p data-progress-label>{% if job.total %}{{ job.checked }} de {{ job.total }} sites verificados{% else %}Preparando os sites{% endif %} <span class="separator">·</span> {{ job.elapsed }}s</p>
         </div>
         <a class="refresh-link" href="{{ url_for('results', token=request.view_args.token) }}">Atualizar</a>
       </div>
-      <progress aria-label="Sites verificados" value="{{ job.checked }}" max="{{ job.total or 1 }}"></progress>
+      <p class="visually-hidden" data-update-status role="status" aria-live="polite" aria-atomic="true">A busca está em andamento.</p>
+      <p class="message error" data-update-error role="status" aria-live="polite" hidden></p>
+      <progress data-search-progress aria-label="Sites verificados" value="{{ job.checked }}" max="{{ job.total or 1 }}"></progress>
       {% endif %}
       {% if job.state == 'partial' %}<p class="message" role="status">O tempo da busca terminou. Os resultados obtidos até agora estão abaixo.</p>{% endif %}
       {% if job.state == 'error' %}<p class="message error" role="alert">{{ job.error }}</p>{% endif %}
-      {% if job.profiles or job.state not in ('queued', 'running') %}
-      <div class="results-heading">
-        <h2><span class="result-count">{{ job.profiles | length }}</span> {{ 'perfil encontrado' if job.profiles | length == 1 else 'perfis encontrados' }}</h2>
-        <p>{{ job.checked }}{% if job.total %}/{{ job.total }}{% endif %} sites <span class="separator">·</span> {{ job.elapsed }}s</p>
+      <div class="results-heading" data-results-heading{% if not job.profiles and job.state in ('queued', 'running') %} hidden{% endif %}>
+        <h2><span class="result-count" data-result-count>{{ job.profiles | length }}</span> <span data-result-label>{{ 'perfil encontrado' if job.profiles | length == 1 else 'perfis encontrados' }}</span></h2>
+        <p data-results-summary>{{ job.checked }}{% if job.total %}/{{ job.total }}{% endif %} sites <span class="separator">·</span> {{ job.elapsed }}s</p>
       </div>
-      {% endif %}
-      {% if job.profiles %}
-      <div class="profile-grid">
+      {% if job.profiles or job.state in ('queued', 'running') %}
+      <div class="profile-grid" data-profile-grid>
         {% for profile in job.profiles %}
-        <article class="profile">
+        <article class="profile" data-profile-name="{{ profile.name }}">
           <div class="profile-top">
             <h3>{% if profile.url | safe_url %}<a class="profile-link" href="{{ profile.url }}" target="_blank" rel="noopener noreferrer">{{ profile.name }}</a>{% else %}{{ profile.name }}{% endif %}</h3>
             {% if profile.similar %}<span class="tag">Aproximado</span>{% endif %}
@@ -64,12 +63,12 @@
         </article>
         {% endfor %}
       </div>
-      <p class="result-note">Um mesmo nome de usuário pode pertencer a pessoas diferentes.</p>
-      {% elif job.state not in ('queued', 'running') %}
-      <div class="empty-state"><h3>Nenhum perfil identificado</h3><p>Confira o nome de usuário ou tente outra pesquisa.</p></div>
+      <p class="result-note" data-profile-note{% if not job.profiles %} hidden{% endif %}>Um mesmo nome de usuário pode pertencer a pessoas diferentes.</p>
       {% endif %}
-      {% if job.unknown %}<p class="result-note">{{ job.unknown }} {{ 'verificação inconclusiva' if job.unknown == 1 else 'verificações inconclusivas' }}. Sites indisponíveis ou bloqueados não confirmam a ausência de um perfil.</p>{% endif %}
+      <div class="empty-state" data-empty-state{% if job.profiles or job.state in ('queued', 'running') %} hidden{% endif %}><h3>Nenhum perfil identificado</h3><p>Confira o nome de usuário ou tente outra pesquisa.</p></div>
+      <p class="result-note" data-unknown-note{% if not job.unknown %} hidden{% endif %}>{{ job.unknown }} {{ 'verificação inconclusiva' if job.unknown == 1 else 'verificações inconclusivas' }}. Sites indisponíveis ou bloqueados não confirmam a ausência de um perfil.</p>
       {% if job.state == 'partial' and job.total > job.checked %}<p class="result-note">{{ job.total - job.checked }} sites não concluíram a verificação dentro do prazo.</p>{% endif %}
+      {% if job.state in ('queued', 'running') %}<p class="message" data-terminal-message role="status" hidden></p><script src="{{ url_for('static', filename='search-progress.js') }}" defer></script>{% endif %}
     </section>
     {% endif %}
   </main>

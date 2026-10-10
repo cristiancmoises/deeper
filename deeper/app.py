@@ -1,7 +1,7 @@
-"""Server-rendered Flask application: no JavaScript is served or required."""
+"""Server-rendered Flask application with same-origin progressive search updates."""
 import atexit
-from importlib.metadata import PackageNotFoundError, version
 import secrets
+from importlib.metadata import PackageNotFoundError, version
 
 from flask import Flask, redirect, render_template, request, session, url_for
 
@@ -103,8 +103,8 @@ def create_app(settings: Settings | None = None, manager: JobManager | None = No
     @app.after_request
     def secure_response(response):
         response.headers['Content-Security-Policy'] = (
-            "default-src 'none'; script-src 'none'; style-src 'self'; "
-            "img-src 'self'; font-src 'self'; connect-src 'none'; "
+            "default-src 'none'; script-src 'self'; style-src 'self'; "
+            "img-src 'self'; font-src 'self'; connect-src 'self'; "
             "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
         )
         response.headers['X-Content-Type-Options'] = 'nosniff'

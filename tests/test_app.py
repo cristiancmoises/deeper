@@ -1,9 +1,9 @@
 """Native form and rendered page contracts, not framework internals."""
-from bs4 import BeautifulSoup
 import pytest
+from bs4 import BeautifulSoup
+from test_jobs import complete_runner, wait_for_job
 
 from deeper.config import Settings
-from test_jobs import complete_runner, wait_for_job
 
 
 @pytest.fixture
@@ -31,7 +31,9 @@ def test_initial_surface_is_just_title_and_native_search(app_bundle):
     assert page.select_one('input[type="search"]')['name'] == 'username'
     assert len(page.select('button[type="submit"]')) == 1
     assert not page.select('nav, footer, script, .results')
-    assert "script-src 'none'" in response.headers['Content-Security-Policy']
+    policy = response.headers['Content-Security-Policy']
+    assert "script-src 'self'" in policy
+    assert "connect-src 'self'" in policy
     for element in page.find_all():
         assert not any(key.lower().startswith('on') for key in element.attrs)
 
@@ -74,6 +76,7 @@ def test_invalid_input_returns_feedback_without_starting_a_search(app_bundle):
 
 def test_pending_job_refreshes_native_html_without_javascript():
     import threading
+
     from deeper.app import create_app
     from deeper.jobs import JobManager
     release = threading.Event()
@@ -88,10 +91,55 @@ def test_pending_job_refreshes_native_html_without_javascript():
         client = app.test_client()
         response = client.post('/search', data={'username': 'synthetic', 'csrf_token': csrf(client)})
         page = BeautifulSoup(client.get(response.headers['Location']).data, 'html.parser')
-        assert page.select_one('meta[http-equiv="refresh"]')['content'] == '3'
+        assert not page.select('meta[http-equiv="refresh"]')
+        assert page.select_one('script[src="/static/search-progress.js"]') is not None
         assert page.select_one('a.refresh-link') is not None
         assert page.select_one('.results')['aria-busy'] == 'true'
         release.set()
+
+
+def test_pending_results_load_only_the_same_origin_updates_script(app_bundle, monkeypatch):
+    app, manager = app_bundle
+    token = '"><img src=x onerror=alert(1)>'
+    job = {'state': 'running', 'username': 'synthetic', 'cache_age': None,
+           'checked': 0, 'total': 2, 'elapsed': 0, 'cursor': 0,
+           'profiles': [], 'unknown': 0, 'error': ''}
+    monkeypatch.setattr(manager, 'submit', lambda username, owner: token)
+    monkeypatch.setattr(manager, 'snapshot', lambda requested, owner: job
+                        if requested == token and owner else None)
+    client = app.test_client()
+    response = client.post('/search', data={
+        'username': 'synthetic', 'csrf_token': csrf(client),
+    })
+    page_response = client.get(response.headers['Location'])
+    page = BeautifulSoup(page_response.data, 'html.parser')
+    results = page.select_one('.results')
+
+    assert response.status_code == 303
+    assert not page.select('meta[http-equiv="refresh"]')
+    assert not page.select('img')
+    script = page.select_one('script[src]')
+    assert script['src'] == '/static/search-progress.js'
+    assert page.select('script') == [script]
+    assert results['data-updates-url'].startswith('/search/')
+    assert results['data-updates-url'].endswith('/updates')
+    assert '<' not in results['data-updates-url'] and '"' not in results['data-updates-url']
+    assert results['data-cursor'] == '0'
+    assert page.select_one('progress[aria-label="Sites verificados"]') is not None
+    assert page.select_one('[role="status"][aria-live="polite"]') is not None
+    assert page.select_one('a.refresh-link') is not None
+    assert "script-src 'self'" in page_response.headers['Content-Security-Policy']
+    assert "connect-src 'self'" in page_response.headers['Content-Security-Policy']
+
+
+def test_terminal_and_home_pages_have_no_progress_script(app_bundle):
+    app, manager = app_bundle
+    client = app.test_client()
+    assert not BeautifulSoup(client.get('/').data, 'html.parser').select('script')
+    token = completed_token(client, manager)
+    terminal = BeautifulSoup(client.get(f'/search/{token}').data, 'html.parser')
+    assert not terminal.select('script')
+    assert not terminal.select('meta[http-equiv="refresh"]')
 
 
 def test_external_html_is_escaped_and_unsafe_links_are_removed():
@@ -120,11 +168,12 @@ def test_external_html_is_escaped_and_unsafe_links_are_removed():
 
 
 def test_reused_results_show_age_without_adding_ui_to_home():
+    from bs4 import BeautifulSoup
+    from test_jobs import complete_runner, wait_for_job
+
     from deeper.app import create_app
     from deeper.config import Settings
     from deeper.jobs import JobManager
-    from test_jobs import complete_runner, wait_for_job
-    from bs4 import BeautifulSoup
     with JobManager(Settings(), runner=complete_runner) as manager:
         app = create_app(Settings(secret_key='test'), manager)
         client = app.test_client()

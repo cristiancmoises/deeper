@@ -1,22 +1,22 @@
 """Smoke test an installed wheel, including a pruned Deeper-only environment."""
 import argparse
 import asyncio
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from importlib import metadata
 import json
-from pathlib import Path
 import sys
 import threading
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib import metadata
+from pathlib import Path
 
+from maigret.sites import MaigretSite
 from waitress import create_server
 
+import deeper
 from deeper.app import create_app
 from deeper.config import Settings
 from deeper.engine import load_sites, search_username
 from deeper.jobs import JobManager
-import deeper
-from maigret.sites import MaigretSite
 
 
 def main():
@@ -64,9 +64,13 @@ def main():
         with urllib.request.urlopen(base) as response:
             html = response.read().decode()
             assert '<script' not in html and '<h1>' in html
-            assert "script-src 'none'" in response.headers['Content-Security-Policy']
+            assert "script-src 'self'" in response.headers['Content-Security-Policy']
+            assert "connect-src 'self'" in response.headers['Content-Security-Policy']
         with urllib.request.urlopen(base + '/static/deeper.css') as response:
             assert response.status == 200
+        with urllib.request.urlopen(base + '/static/search-progress.js') as response:
+            script = response.read().decode()
+            assert response.status == 200 and 'profiles_delta' in script
     finally:
         server.task_dispatcher.shutdown(timeout=3)
         server.close()

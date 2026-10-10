@@ -24,7 +24,7 @@ deeper = "deeper.__main__:main"
 include = ["deeper*"]
 
 [tool.setuptools.package-data]
-deeper = ["templates/*.html", "static/*.css", "static/*.svg"]
+deeper = ["templates/*.html", "static/*.css", "static/*.js", "static/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
