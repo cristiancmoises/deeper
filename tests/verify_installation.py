@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     assert Path(deeper.__file__).resolve().is_relative_to(Path(sys.prefix).resolve()), deeper.__file__
-    assert metadata.version('deeper-maigret') == '0.2.0'
+    assert metadata.version('deeper-maigret') == '0.3.0'
     sites = load_sites(Settings(top_sites=10))
     assert len(sites) == 10
     class Handler(BaseHTTPRequestHandler):
@@ -60,7 +60,8 @@ def main():
     try:
         base = f'http://127.0.0.1:{server.effective_port}'
         with urllib.request.urlopen(base + '/health') as response:
-            assert json.load(response)['status'] == 'ok'
+            health = json.load(response)
+            assert health['status'] == 'ok' and health['deeper_version'] == '0.3.0'
         with urllib.request.urlopen(base) as response:
             html = response.read().decode()
             assert '<script' not in html and '<h1>' in html
@@ -70,7 +71,8 @@ def main():
             assert response.status == 200
         with urllib.request.urlopen(base + '/static/search-progress.js') as response:
             script = response.read().decode()
-            assert response.status == 200 and 'profiles_delta' in script
+            assert response.status == 200
+            assert "requestUrl.searchParams.set('after', String(cursor))" in script
     finally:
         server.task_dispatcher.shutdown(timeout=3)
         server.close()
@@ -80,7 +82,8 @@ def main():
               'maigret_version': metadata.version('maigret'), 'python': sys.version.split()[0],
               'module_path': deeper.__file__, 'database_sites': len(sites),
               'real_maigret_local_report': {key: report[key] for key in ('state', 'checked', 'unknown')},
-              'found_profiles': len(report['profiles']), 'health_html_css': 'pass', 'no_javascript': True}
+              'found_profiles': len(report['profiles']), 'health_html_css': 'pass',
+              'home_page_no_javascript': True}
     args.output.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(result))
 

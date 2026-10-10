@@ -142,6 +142,21 @@ def test_terminal_and_home_pages_have_no_progress_script(app_bundle):
     assert not terminal.select('meta[http-equiv="refresh"]')
 
 
+def test_health_reports_deeper_and_engine_versions(app_bundle, monkeypatch):
+    app, _ = app_bundle
+    versions = {'deeper-maigret': '0.3.0', 'maigret': '0.6.6'}
+    monkeypatch.setattr('deeper.app.version', lambda package: versions[package])
+
+    response = app.test_client().get('/health')
+
+    assert response.json == {
+        'status': 'ok',
+        'deeper_version': '0.3.0',
+        'engine': 'maigret',
+        'engine_version': '0.6.6',
+    }
+
+
 def test_external_html_is_escaped_and_unsafe_links_are_removed():
     from deeper.app import create_app
     from deeper.jobs import JobManager

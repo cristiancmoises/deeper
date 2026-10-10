@@ -1,9 +1,16 @@
-# Deeper 0.2.0 — desempenho e armazenamento
+# Deeper 0.3.0 — desempenho e armazenamento
 
 [English](../PERFORMANCE.md) | **Português (Brasil)**
 
-Medições locais feitas em 9 de outubro de 2026, Linux x86_64, Python 3.12.14.
-O principal ganho ocorre nas buscas seguintes em um processo já carregado.
+As medições históricas abaixo comparam as buscas e o armazenamento das versões
+0.1.0 e 0.2.0. A medição de payloads incrementais da versão 0.3.0 aparece em
+seção separada; são dados sintéticos locais, não tempos de resposta de sites
+públicos.
+
+## Histórico: busca e armazenamento de 0.1.0 a 0.2.0
+
+Medições feitas em 9 de outubro de 2026, Linux x86_64, Python 3.12.14. O
+principal ganho foi nas buscas seguintes em um processo já carregado.
 
 | Medida | 0.1.0 | 0.2.0 |
 | --- | ---: | ---: |
@@ -19,6 +26,31 @@ O tempo das buscas seguintes foi **58,2% menor**. Os arquivos instalados ficaram
 **33,8% menores**, uma redução lógica de 65,4 MiB. MiB = 1.048.576 bytes. São
 amostras locais, não prazos garantidos para sites públicos.
 
+## Progresso incremental na versão 0.3.0
+
+Medição feita em 10 de outubro de 2026 com Python 3.12.12, Linux x86_64
+(kernel 7.2.9, glibc 2.41), Maigret 0.6.6, 500 sites ranqueados, 20 conexões,
+um worker e fixture HTTP local com atraso de 5ms. Cada uma das duas buscas
+retornou 50 perfis CLAIMED, 400 sites ausentes e 50 verificações inconclusivas.
+
+| Medida | Observado |
+| --- | ---: |
+| Mensagens de progresso em execução, duas buscas | 14 |
+| Payload JSON incremental total | 12.797 bytes |
+| Referência com snapshot cumulativo | 37.373 bytes |
+| Redução dos payloads de progresso | 65,8% |
+| Busca sintética fria / segunda | 4,303s / 3,249s |
+| Repetição de resultado em cache | 0,305ms, 0 requisições HTTP |
+| Pico de RSS de um worker | 96,6 MiB |
+
+Os tamanhos comparam os eventos incrementais emitidos com uma referência que
+repete todos os perfis acumulados em cada evento correspondente. Em uma amostra
+separada de 100 sites, com apenas quatro mensagens de progresso, os deltas
+somaram 434 bytes contra 410 bytes cumulativos; aquela amostra esparsa não teve
+ganho. A redução depende da quantidade e do tamanho dos eventos. Essas medições
+não aceleram as verificações externas do Maigret nem preveem a latência de sites
+públicos.
+
 ## Método e integridade
 
 - O benchmark usa o **Maigret oficial 0.6.6**, seleção e ranking oficiais da
@@ -26,9 +58,10 @@ amostras locais, não prazos garantidos para sites públicos.
   são substituídos por fixtures locais. O motor, parser e ciclo de processos
   são reais.
 - O servidor HTTP local responde após 5ms. Cada busca retorna 50 perfis
-  CLAIMED, 400 ausentes e 50 inconclusivos. As duas versões produziram
-  contagens equivalentes nas cinco execuções. Nenhum username de pessoa real
-  foi pesquisado.
+  CLAIMED, 400 sites ausentes e 50 verificações inconclusivas. A comparação
+  histórica entre 0.1.0 e 0.2.0 produziu contagens equivalentes nas cinco
+  execuções; a amostra de payloads 0.3.0 usou duas execuções. Nenhum username de
+  pessoa real foi pesquisado.
 - A primeira busca inclui importação e carregamento da base. As quatro
   seguintes usam usernames diferentes; o ganho vem da reutilização do worker,
   não do cache de resultados.
@@ -47,22 +80,24 @@ amostras locais, não prazos garantidos para sites públicos.
   aparo, um smoke check usa o Maigret real com HTTP local e verifica health, HTML
   e CSS do wheel instalado.
 - As contagens não incluem imagens base de Python/Linux, overhead de blocos,
-  downloads, camadas da imagem ou cache de build. **O tamanho da imagem Docker
-  não foi medido:** Docker não estava disponível. O build também requer espaço
-  temporário adicional na VPS.
+  downloads, camadas da imagem ou cache de build. **A imagem Docker 0.3.0 não foi
+  construída localmente:** a configuração Compose foi validada; build e tamanho
+  da imagem ficam para a implantação na IONOS. Um build também requer espaço
+  temporário adicional.
 
 ## Reprodução
 
-Com as duas árvores de versão e dependências instaladas, execute em Linux:
+Com as árvores de versão necessárias e dependências instaladas, execute em Linux:
 
 ```sh
 python scripts/benchmark.py --project /caminho/deeper-0.1.0 --output /caminho/baseline.json
 python scripts/benchmark.py --project /caminho/deeper-0.2.0 --output /caminho/optimized.json
+python scripts/benchmark.py --project /caminho/deeper-0.3.0 --output /caminho/progress.json --runs 2 --sites 500
 ```
 
 Execute em sequência para evitar sobreposição entre cenários. O script valida as
 contagens e encerra todos os processos ao terminar. Para medir a imagem na VPS,
-use `docker image inspect deeper:0.2.0 --format '{{.Size}}'` e
+use `docker image inspect deeper:0.3.0 --format '{{.Size}}'` e
 `docker system df`. O Deeper não executa comandos de limpeza global.
 
 ## Como o armazenamento é controlado

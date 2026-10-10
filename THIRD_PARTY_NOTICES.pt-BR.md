@@ -10,7 +10,7 @@ projeto oficial Maigret.
   Fontes oficiais: [GitHub](https://github.com/soxoj/maigret) e
   [PyPI](https://pypi.org/project/maigret/0.6.6/). Agradecemos ao Soxoj por
   disponibilizar o Maigret sob a licença MIT.
-- **Deeper 0.2.0**: MIT; consulte `LICENSE`.
+- **Deeper 0.3.0**: MIT; consulte `LICENSE`.
 - Flask, Waitress e demais dependências mantêm seus próprios avisos nas
   distribuições. O arquivo de lock registra as versões utilizadas; este pacote
   não redistribui os binários dessas bibliotecas.

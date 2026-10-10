@@ -1,4 +1,4 @@
-# Deeper 0.2.0
+# Deeper 0.3.0
 
 **English** | [Português (Brasil)](README.pt-BR.md)
 
@@ -11,9 +11,12 @@ each result in context. Deeper does not perform recursive searches, use
 authenticated platform cookies, or bypass access controls.
 
 The interface uses a black-and-cyan design with an animated CSS title. The
-search page sends no JavaScript to the browser. Results are private to a browser
-session and kept in memory; the application has no database, persistent search
-history, or on-disk reports.
+search landing page is server-rendered without JavaScript. A pending results
+page loads one same-origin script that appends new profiles and updates progress
+without reloading the whole page. If JavaScript is unavailable, the HTML still
+works and a manual refresh link remains available. Results are private to a
+browser session and kept in memory; the application has no database, persistent
+search history, or on-disk reports.
 
 ## Screenshots
 
@@ -58,8 +61,11 @@ put a reverse proxy with HTTPS in front of Deeper and set
 runs on the same host. If your proxy needs a non-loopback binding, restrict it
 with a firewall and do not expose the plain HTTP port directly to the internet.
 
-## What is included in 0.2.0
+## What is included in 0.3.0
 
+- New profiles and site-check progress appear incrementally while a search runs;
+  progress responses carry only profiles after the browser's current cursor.
+  The search engine's site limits, concurrency, and timeouts are unchanged.
 - Isolated search workers are reused: the Maigret database is loaded once per
   process, with an independent site copy for each search. Workers start on
   demand, are recycled after 25 searches, and exit after 120 seconds idle.
@@ -80,7 +86,7 @@ Measurements and methodology are documented in
 on external platforms must be measured in your own environment. Builds also use
 temporary storage and Docker cache; a smaller runtime does not eliminate that
 cost. Inspect local usage with `docker system df` and
-`docker image inspect deeper:0.2.0 --format '{{.Size}}'`. Deeper does not run
+`docker image inspect deeper:0.3.0 --format '{{.Size}}'`. Deeper does not run
 global Docker or VPS cleanup commands.
 
 ## Python installation
@@ -109,7 +115,7 @@ env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m deeper --host 0.0.0.0 --port 8
 `/health` reports whether the Maigret package is available; it does not check
 connectivity to every platform. To install the included wheel after installing
 the lock file, run
-`pip install --no-deps wheels/deeper_maigret-0.2.0-py3-none-any.whl`.
+`pip install --no-deps wheels/deeper_maigret-0.3.0-py3-none-any.whl`.
 
 ## Searches, limits, and freshness
 
@@ -120,9 +126,11 @@ plus 15 seconds for startup. Reusing a worker reduces startup overhead; it does
 not make external sites respond faster. A cold search still pays the database
 loading cost.
 
-While a search is pending, the HTML page refreshes every three seconds. Refreshing
-does not start another search. Select the title to return to the start page. If
-you repeat a completed username in the same session within 60 seconds, the page
+While a search is pending, new profiles are appended and progress updates about
+once per second without a full-page reload. If JavaScript is disabled, use the
+manual **Atualizar** link to get the latest server-rendered HTML; it does not
+start another search. Select the title to return to the start page. If you
+repeat a completed username in the same session within 60 seconds, the page
 shows the result age; after that, it starts a new search. Set
 `DEEPER_CACHE_TTL=0` to disable completed-result reuse. Results preserve the
 distinction between CLAIMED, absent, and inconclusive.
@@ -164,7 +172,7 @@ optimization.
 ## Validation and license
 
 [`docs/VALIDATION.md`](docs/VALIDATION.md) describes the validation performed
-for this release. The test suite uses real Maigret code against local HTTP
+for 0.3.0. The test suite uses real Maigret code against local HTTP
 fixtures with synthetic profiles. `tests/verify_ui.py` uses Playwright as an
 external QA tool; it does not add scripts to the page.
 

@@ -1,4 +1,4 @@
-# Deeper 0.2.0
+# Deeper 0.3.0
 
 [English](README.md) | **Português (Brasil)**
 
@@ -12,9 +12,12 @@ recursivas, não usa cookies autenticados de plataformas e não contorna control
 de acesso.
 
 A interface tem fundo preto, detalhes em ciano e título animado em CSS. A página
-de busca não envia JavaScript ao navegador. Os resultados são privados à sessão
-do navegador e ficam em memória; a aplicação não tem banco de dados, histórico
-persistente de buscas nem relatórios em disco.
+inicial da busca é renderizada no servidor sem JavaScript. Enquanto há uma
+pesquisa pendente, a página de resultados carrega um único script da mesma
+origem para acrescentar perfis e atualizar o progresso sem recarregar a página
+inteira. Sem JavaScript, o HTML continua funcional e há um link de atualização
+manual. Os resultados são privados à sessão do navegador e ficam em memória;
+a aplicação não tem banco de dados, histórico persistente nem relatórios em disco.
 
 ## Capturas de tela
 
@@ -59,8 +62,11 @@ e defina `DEEPER_SECURE_COOKIE=1` no `.env`. Mantenha o app em loopback quando o
 proxy estiver no mesmo host. Se o proxy exigir um bind fora do loopback, restrinja
 o acesso com firewall; não exponha a porta HTTP sem TLS diretamente à internet.
 
-## O que há na versão 0.2.0
+## O que há na versão 0.3.0
 
+- Novos perfis e o progresso dos sites aparecem durante a busca; cada resposta
+  leva somente os perfis após o cursor atual do navegador. Os limites de sites,
+  concorrência e prazos do motor de busca não mudaram.
 - Workers isolados de busca são reutilizados: a base do Maigret é carregada uma
   vez por processo, com uma cópia independente dos sites para cada pesquisa.
   Processos nascem sob demanda, são reciclados após 25 buscas e encerrados após
@@ -83,7 +89,7 @@ As medições e o método estão em
 desempenho em plataformas externas precisam ser medidos no seu ambiente. Builds
 também usam armazenamento temporário e cache do Docker; um runtime menor não
 elimina esse custo. Consulte o uso local com `docker system df` e
-`docker image inspect deeper:0.2.0 --format '{{.Size}}'`. O Deeper não executa
+`docker image inspect deeper:0.3.0 --format '{{.Size}}'`. O Deeper não executa
 limpeza global do Docker ou da VPS.
 
 ## Instalação Python
@@ -111,7 +117,7 @@ env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m deeper --host 0.0.0.0 --port 8
 
 `/health` informa se o pacote Maigret está disponível; não verifica a conexão
 com cada plataforma. Para instalar o wheel incluído depois do lock, execute
-`pip install --no-deps wheels/deeper_maigret-0.2.0-py3-none-any.whl`.
+`pip install --no-deps wheels/deeper_maigret-0.3.0-py3-none-any.whl`.
 
 ## Buscas, limites e atualização dos resultados
 
@@ -122,8 +128,10 @@ por busca**. Um watchdog encerra processos bloqueados após o prazo mais
 não acelera a resposta de sites externos. Uma busca fria ainda paga o custo de
 carregar a base.
 
-Enquanto uma busca está pendente, o HTML é atualizado a cada três segundos.
-Atualizar a página não inicia outra busca. Clique no título para voltar ao início.
+Enquanto uma busca está pendente, novos perfis são acrescentados e o progresso é
+atualizado aproximadamente a cada segundo, sem recarregar a página inteira. Se
+JavaScript estiver desativado, use o link manual **Atualizar** para obter o HTML
+mais recente; isso não inicia outra busca. Clique no título para voltar ao início.
 Se repetir um usuário já pesquisado na mesma sessão em até 60 segundos, a página
 mostra a idade do resultado; depois desse prazo, uma nova busca é iniciada. Use
 `DEEPER_CACHE_TTL=0` para desativar a reutilização após conclusão. Os resultados
@@ -166,7 +174,7 @@ os padrões originais de pesquisa foram preservados nesta otimização.
 
 ## Validação e licença
 
-[`docs/pt-BR/VALIDATION.md`](docs/pt-BR/VALIDATION.md) descreve a validação desta versão. A
+[`docs/pt-BR/VALIDATION.md`](docs/pt-BR/VALIDATION.md) descreve a validação da versão 0.3.0. A
 suíte usa o Maigret real com fixtures HTTP locais e perfis sintéticos.
 `tests/verify_ui.py` usa Playwright como ferramenta externa de QA; ele não
 adiciona scripts à página.

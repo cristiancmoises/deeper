@@ -91,10 +91,12 @@ def create_app(settings: Settings | None = None, manager: JobManager | None = No
     @app.get('/health')
     def health():
         try:
+            deeper_version = version('deeper-maigret')
             engine_version = version('maigret')
         except PackageNotFoundError:
             return {'status': 'unavailable'}, 503
-        return {'status': 'ok', 'engine': 'maigret', 'engine_version': engine_version}
+        return {'status': 'ok', 'deeper_version': deeper_version,
+                'engine': 'maigret', 'engine_version': engine_version}
 
     @app.errorhandler(413)
     def request_too_large(error):
