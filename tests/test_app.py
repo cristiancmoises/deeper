@@ -140,3 +140,84 @@ def test_reused_results_show_age_without_adding_ui_to_home():
         assert 'Resultados reutilizados desta sessão' in client.get(second.headers['Location']).text
         assert 'Resultados reutilizados' not in client.get('/').text
 
+
+def completed_token(client, manager):
+    response = client.post('/search', data={
+        'username': 'synthetic', 'csrf_token': csrf(client),
+    })
+    assert response.status_code == 303
+    token = response.headers['Location'].rsplit('/', 1)[1]
+    with client.session_transaction() as session:
+        owner = session['owner']
+    wait_for_job(manager, token, owner)
+    return token
+
+
+def test_updates_endpoint_returns_incremental_json_and_terminal_state(app_bundle):
+    app, manager = app_bundle
+    client = app.test_client()
+    token = completed_token(client, manager)
+
+    first = client.get(f'/search/{token}/updates')
+    assert first.status_code == 200
+    assert first.headers['Cache-Control'] == 'no-store'
+    assert 'Access-Control-Allow-Origin' not in first.headers
+    assert first.get_json() == {
+        'state': 'done', 'checked': 2, 'total': 2, 'unknown': 1,
+        'elapsed': first.get_json()['elapsed'], 'cursor': 1,
+        'profiles': [{
+            'name': 'Example', 'url': 'https://example.com/synthetic',
+            'tags': [], 'details': [], 'links': [], 'similar': False,
+        }],
+        'error': '',
+    }
+    next_page = client.get(f'/search/{token}/updates?after=1')
+    assert next_page.status_code == 200
+    assert next_page.get_json()['cursor'] == 1
+    assert next_page.get_json()['profiles'] == []
+
+
+def test_updates_endpoint_hides_missing_foreign_and_expired_jobs(app_bundle):
+    app, manager = app_bundle
+    owner_client = app.test_client()
+    token = completed_token(owner_client, manager)
+    with owner_client.session_transaction() as session:
+        owner = session['owner']
+
+    missing = owner_client.get('/search/not-a-real-token/updates')
+    no_session = app.test_client().get(f'/search/{token}/updates')
+    foreign_client = app.test_client()
+    csrf(foreign_client)
+    foreign = foreign_client.get(f'/search/{token}/updates')
+    manager._jobs[token]['finished'] -= manager.settings.retention + 1
+    expired = owner_client.get(f'/search/{token}/updates')
+
+    assert missing.status_code == no_session.status_code == foreign.status_code == expired.status_code == 404
+    assert missing.get_json() == no_session.get_json() == foreign.get_json() == expired.get_json() == {
+        'error': 'Busca indisponível.'}
+    assert owner not in missing.get_data(as_text=True)
+    assert 'profiles' not in missing.get_json()
+
+
+@pytest.mark.parametrize('cursor', ['', '-1', '+1', '1.0', '１２', '12345678901'])
+def test_updates_endpoint_rejects_malformed_cursor_without_job_data(app_bundle, cursor):
+    app, manager = app_bundle
+    client = app.test_client()
+    token = completed_token(client, manager)
+
+    response = client.get(f'/search/{token}/updates?after={cursor}')
+    assert response.status_code == 400
+    assert response.get_json() == {'error': 'Cursor inválido.'}
+    assert 'profiles' not in response.get_json()
+
+
+def test_updates_endpoint_rejects_future_cursor_without_job_data(app_bundle):
+    app, manager = app_bundle
+    client = app.test_client()
+    token = completed_token(client, manager)
+
+    response = client.get(f'/search/{token}/updates?after=2')
+    assert response.status_code == 400
+    assert response.get_json() == {'error': 'Cursor inválido.'}
+    assert 'profiles' not in response.get_json()
+

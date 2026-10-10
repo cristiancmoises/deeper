@@ -3,7 +3,7 @@ import atexit
 from importlib.metadata import PackageNotFoundError, version
 import secrets
 
-from flask import Flask, abort, redirect, render_template, request, session, url_for
+from flask import Flask, redirect, render_template, request, session, url_for
 
 from .config import Settings
 from .engine import safe_url, validate_username
@@ -61,6 +61,32 @@ def create_app(settings: Settings | None = None, manager: JobManager | None = No
         if job is None:
             return render(error='Esta busca expirou ou não está disponível nesta sessão.', code=404)
         return render(username=job['username'], job=job)
+
+    @app.get('/search/<token>/updates')
+    def search_updates(token):
+        owner = session.get('owner')
+        if not owner:
+            return {'error': 'Busca indisponível.'}, 404
+
+        cursors = request.args.getlist('after')
+        if len(cursors) > 1:
+            return {'error': 'Cursor inválido.'}, 400
+        raw_cursor = cursors[0] if cursors else None
+        if raw_cursor is None:
+            cursor = 0
+        elif (not raw_cursor or len(raw_cursor) > 10
+              or not raw_cursor.isascii() or not raw_cursor.isdecimal()):
+            return {'error': 'Cursor inválido.'}, 400
+        else:
+            cursor = int(raw_cursor)
+
+        try:
+            updates = manager.updates(token, owner, cursor)
+        except ValueError:
+            return {'error': 'Cursor inválido.'}, 400
+        if updates is None:
+            return {'error': 'Busca indisponível.'}, 404
+        return updates
 
     @app.get('/health')
     def health():
