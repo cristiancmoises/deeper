@@ -35,17 +35,18 @@ claimed profiles, 400 absent sites, and 50 inconclusive checks.
 | Measure | Observed |
 | --- | ---: |
 | Running progress messages, two searches | 14 |
-| Incremental JSON-line payload total | 12,797 bytes |
-| Cumulative-snapshot reference total | 37,373 bytes |
-| Progress payload reduction | 65.8% |
-| Cold / second synthetic search | 4.303s / 3.249s |
-| Completed-result cache repeat | 0.305ms, 0 HTTP requests |
-| Peak single worker RSS | 96.6 MiB |
+| Incremental worker-format JSON-lines, two searches | 14,993 bytes |
+| Cumulative-snapshot reference, same JSON-line format | 42,984 bytes |
+| Progress payload reduction | 65.1% |
+| Cold / second synthetic search | 4.150s / 3.008s |
+| Completed-result cache repeat | 0.312ms, 0 HTTP requests |
+| Peak single worker RSS | 96.8 MiB |
 
-The byte totals compare the actual emitted delta events with a reference that
-repeats all profiles accumulated so far at each same progress event. In a
-separate 100-site sample with only four progress messages, deltas were 434 bytes
-versus 410 bytes cumulatively; that sparse sample did not benefit. The reduction
+The byte totals serialize the same progress objects with the worker's JSON
+format and newline, comparing delta events with a reference that repeats all
+profiles accumulated so far at each same progress event. In a
+separate 100-site sample with only four progress messages, deltas were 622 bytes
+versus 598 bytes cumulatively; that sparse sample did not benefit. The reduction
 therefore depends on the number and size of progress events. These measurements
 do not make Maigret's external checks faster and do not predict public-site
 latency.

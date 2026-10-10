@@ -1,16 +1,16 @@
 """Reproducible Maigret benchmark against local HTTP, never public profiles."""
 import argparse
-from collections import Counter
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-from pathlib import Path
 import platform
 import statistics
 import subprocess
 import sys
 import threading
 import time
+from collections import Counter
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 
 def main():
@@ -110,10 +110,10 @@ raise SystemExit(worker.main())
             cumulative_event = dict(counters, profiles=profiles)
             payloads['messages'] += 1
             payloads['delta_bytes'] += len(
-                (json.dumps(delta_event, ensure_ascii=False, separators=(',', ':')) + '\n')
+                (json.dumps(delta_event, ensure_ascii=False) + '\n')
                 .encode('utf-8'))
             payloads['cumulative_reference_bytes'] += len(
-                (json.dumps(cumulative_event, ensure_ascii=False, separators=(',', ':')) + '\n')
+                (json.dumps(cumulative_event, ensure_ascii=False) + '\n')
                 .encode('utf-8'))
         return original_update(manager, token, report)
 

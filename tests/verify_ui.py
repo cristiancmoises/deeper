@@ -71,6 +71,10 @@ def main():
         hostile_release = threading.Event()
         retry_started = threading.Event()
         retry_release = threading.Event()
+        reconcile_started = threading.Event()
+        reconcile_release = threading.Event()
+        unavailable_started = threading.Event()
+        unavailable_release = threading.Event()
 
         def runner(username, config, emit):
             if username == 'hostile':
@@ -95,6 +99,26 @@ def main():
                     raise TimeoutError()
                 return {'state': 'done', 'checked': 2, 'total': 2,
                         'unknown': 2, 'profiles': []}
+            if username == 'reconcile':
+                stale = {'name': 'First', 'url': 'https://example.com/old',
+                         'tags': [], 'details': [], 'links': [], 'similar': False}
+                removed = {'name': 'Removed', 'url': 'https://example.com/removed',
+                           'tags': [], 'details': [], 'links': [], 'similar': False}
+                corrected = {'name': 'First', 'url': 'https://example.com/current',
+                             'tags': [], 'details': [], 'links': [], 'similar': False}
+                emit({'state': 'running', 'checked': 2, 'total': 3, 'unknown': 0,
+                      'profiles_delta': [stale, removed]})
+                reconcile_started.set()
+                if not reconcile_release.wait(8):
+                    raise TimeoutError()
+                return {'state': 'done', 'checked': 3, 'total': 3, 'unknown': 0,
+                        'profiles': [corrected]}
+            if username == 'unavailable':
+                unavailable_started.set()
+                if not unavailable_release.wait(8):
+                    raise TimeoutError()
+                return {'state': 'done', 'checked': 1, 'total': 1,
+                        'unknown': 1, 'profiles': []}
             selected_sites = live_sites if username.startswith('progressive_') else sites
             return asyncio.run(search_username(username, config, emit, sites=selected_sites))
 
@@ -268,6 +292,8 @@ def main():
                             'errors': page.locator('[data-update-error]').inner_text(),
                             'console': console_issues,
                         }
+                        assert page.locator('.search-status h2').inner_text() == (
+                            f'Busca concluída @{username}')
                         terminal_requests = network['requests']
                         page.wait_for_timeout(1300)
                         assert network['requests'] == terminal_requests
@@ -287,6 +313,39 @@ def main():
                             'console_issues': console_issues,
                         })
                         context.close()
+
+                    reconcile_context = browser.new_context(java_script_enabled=True,
+                        viewport={'width': 1024, 'height': 768})
+                    reconcile_page = reconcile_context.new_page()
+                    update_reconciliations = []
+                    reconcile_page.on('response', lambda response:
+                        update_reconciliations.append(response.json().get('reconcile'))
+                        if '/updates' in response.url else None)
+                    reconcile_page.goto(base)
+                    reconcile_page.get_by_role('searchbox', name='Nome de usuário').fill('reconcile')
+                    reconcile_page.get_by_role('searchbox', name='Nome de usuário').press('Enter')
+                    assert reconcile_started.wait(3)
+                    try:
+                        reconcile_page.locator('.profile[data-profile-name="First"]').wait_for(
+                            state='visible', timeout=5000)
+                        reconcile_page.locator('.profile[data-profile-name="Removed"]').wait_for(
+                            state='visible', timeout=5000)
+                        assert reconcile_page.locator(
+                            '.profile[data-profile-name="First"] .profile-link'
+                        ).get_attribute('href').endswith('/old')
+                        reconcile_release.set()
+                        reconcile_page.locator('.results[aria-busy="false"]').wait_for(timeout=5000)
+                        assert reconcile_page.locator('.profile').count() == 1
+                        assert reconcile_page.locator('.profile[data-profile-name="First"] .profile-link').get_attribute(
+                            'href').endswith('/current')
+                        assert reconcile_page.locator('.profile[data-profile-name="Removed"]').count() == 0
+                        assert True in update_reconciliations, update_reconciliations
+                        assert reconcile_page.locator('.search-status h2').inner_text() == (
+                            'Busca concluída @reconcile')
+                        evidence['authoritative_reconciliation'] = True
+                    finally:
+                        reconcile_release.set()
+                        reconcile_context.close()
 
                     hostile_context = browser.new_context(java_script_enabled=True,
                         viewport={'width': 1024, 'height': 768})
@@ -336,10 +395,34 @@ def main():
                         assert failures['count'] == 3, failures
                         retry_page.wait_for_timeout(1300)
                         assert failures['count'] == 3, failures
+                        assert retry_page.locator('.results').get_attribute('aria-busy') == 'false'
                         evidence['polling_stops_after_failures'] = failures['count']
                     finally:
                         retry_release.set()
                         retry_context.close()
+
+                    unavailable_context = browser.new_context(java_script_enabled=True,
+                        viewport={'width': 1024, 'height': 768})
+                    unavailable_page = unavailable_context.new_page()
+                    unavailable_page.route('**/updates*', lambda route: route.fulfill(
+                        status=404, content_type='application/json', body='{"error":"Busca indisponível."}'))
+                    unavailable_page.goto(base)
+                    unavailable_page.get_by_role('searchbox', name='Nome de usuário').fill('unavailable')
+                    unavailable_page.get_by_role('searchbox', name='Nome de usuário').press('Enter')
+                    assert unavailable_started.wait(3)
+                    try:
+                        unavailable_page.locator('[data-update-error]').wait_for(
+                            state='visible', timeout=5000)
+                        assert 'não está mais disponível' in unavailable_page.locator(
+                            '[data-update-error]').inner_text().lower()
+                        assert unavailable_page.locator('.search-status h2').inner_text() == (
+                            'Busca indisponível @unavailable')
+                        assert unavailable_page.locator('.results').get_attribute('aria-busy') == 'false'
+                        assert unavailable_page.locator('.scanner').is_hidden()
+                        evidence['visible_unavailable_recovery'] = True
+                    finally:
+                        unavailable_release.set()
+                        unavailable_context.close()
 
                     context = browser.new_context(java_script_enabled=False,
                         viewport={'width': 320, 'height': 720}, reduced_motion='reduce')

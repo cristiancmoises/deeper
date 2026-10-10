@@ -33,12 +33,11 @@
       {% if job.state in ('queued', 'running') %}
       <div class="search-status" role="status">
         <span class="scanner" aria-hidden="true"></span>
-        <div><h2>{{ 'Aguardando para buscar' if job.state == 'queued' else 'Buscando' }} <span>@{{ username }}</span></h2>
+        <div><h2><span data-search-state>{{ 'Aguardando para buscar' if job.state == 'queued' else 'Buscando' }}</span> <span>@{{ username }}</span></h2>
           <p data-progress-label>{% if job.total %}{{ job.checked }} de {{ job.total }} sites verificados{% else %}Preparando os sites{% endif %} <span class="separator">·</span> {{ job.elapsed }}s</p>
         </div>
         <a class="refresh-link" href="{{ url_for('results', token=request.view_args.token) }}">Atualizar</a>
       </div>
-      <p class="visually-hidden" data-update-status role="status" aria-live="polite" aria-atomic="true">A busca está em andamento.</p>
       <p class="message error" data-update-error role="status" aria-live="polite" hidden></p>
       <progress data-search-progress aria-label="Sites verificados" value="{{ job.checked }}" max="{{ job.total or 1 }}"></progress>
       {% endif %}
@@ -70,6 +69,7 @@
       {% if job.state == 'partial' and job.total > job.checked %}<p class="result-note">{{ job.total - job.checked }} sites não concluíram a verificação dentro do prazo.</p>{% endif %}
       {% if job.state in ('queued', 'running') %}<p class="message" data-terminal-message role="status" hidden></p><script src="{{ url_for('static', filename='search-progress.js') }}" defer></script>{% endif %}
     </section>
+    {% if job.state in ('queued', 'running') %}<p class="visually-hidden" data-update-status role="status" aria-live="polite" aria-atomic="true">A busca está em andamento.</p>{% endif %}
     {% endif %}
   </main>
 </body>

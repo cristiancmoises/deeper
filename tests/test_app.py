@@ -128,6 +128,9 @@ def test_pending_results_load_only_the_same_origin_updates_script(app_bundle, mo
     assert page.select_one('progress[aria-label="Sites verificados"]') is not None
     assert page.select_one('[role="status"][aria-live="polite"]') is not None
     assert page.select_one('a.refresh-link') is not None
+    assert page.select_one('[data-search-state]').get_text(strip=True) == 'Buscando'
+    assert page.select_one('[data-update-status]').find_parent(
+        attrs={'aria-busy': 'true'}) is None
     assert "script-src 'self'" in page_response.headers['Content-Security-Policy']
     assert "connect-src 'self'" in page_response.headers['Content-Security-Policy']
 
@@ -229,6 +232,7 @@ def test_updates_endpoint_returns_incremental_json_and_terminal_state(app_bundle
     assert first.get_json() == {
         'state': 'done', 'checked': 2, 'total': 2, 'unknown': 1,
         'elapsed': first.get_json()['elapsed'], 'cursor': 1,
+        'reconcile': False,
         'profiles': [{
             'name': 'Example', 'url': 'https://example.com/synthetic',
             'tags': [], 'details': [], 'links': [], 'similar': False,

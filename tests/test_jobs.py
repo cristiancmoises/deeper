@@ -100,6 +100,31 @@ def test_final_report_reconciles_without_duplicate_events():
         assert updates['profiles'] == [first, second]
 
 
+def test_authoritative_final_profiles_replace_stale_progress_events():
+    stale = {'name': 'First', 'url': 'https://example.com/old', 'tags': [],
+             'details': [], 'links': [], 'similar': False}
+    removed = {'name': 'Removed', 'url': 'https://example.com/removed', 'tags': [],
+               'details': [], 'links': [], 'similar': False}
+    corrected = {'name': 'First', 'url': 'https://example.com/current', 'tags': [],
+                 'details': [], 'links': [], 'similar': False}
+
+    def runner(username, settings, emit):
+        emit({'state': 'running', 'checked': 2, 'total': 3, 'unknown': 0,
+              'profiles_delta': [stale, removed]})
+        return {'state': 'done', 'checked': 3, 'total': 3, 'unknown': 0,
+                'profiles': [corrected]}
+
+    with manager_type()(Settings(), runner=runner) as manager:
+        token = manager.submit('synthetic', 'owner')
+        job = wait_for_job(manager, token, 'owner')
+        updates = manager.updates(token, 'owner', 2)
+
+        assert job['profiles'] == [corrected]
+        assert updates is not None
+        assert updates['reconcile'] is True
+        assert updates['profiles'] == [corrected]
+
+
 def test_snapshot_exposes_cursor_not_internal_event_storage():
     with manager_type()(Settings(), runner=complete_runner) as manager:
         token = manager.submit('synthetic', 'owner')
@@ -184,7 +209,8 @@ def test_hard_timeout_retains_partial_profiles():
 
 def test_finished_jobs_expire_in_memory(monkeypatch):
     from types import SimpleNamespace
-    import deeper.jobs as jobs
+
+    from deeper import jobs
     clock = [100.0]
     monkeypatch.setattr(jobs, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
     with manager_type()(Settings(retention=15), runner=complete_runner) as manager:

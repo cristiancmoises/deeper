@@ -8,15 +8,16 @@ Data: 10 de outubro de 2026. As buscas automatizadas abaixo usam apenas fixtures
 
 | Verificação | Resultado |
 | --- | --- |
-| Suíte completa Python 3.12.12 | 83 testes passaram em 10,38s. |
+| Suíte completa Python 3.12.12 | 84 testes passaram em 10,92s. |
 | Build do wheel | `deeper_maigret-0.3.0-py3-none-any.whl`; inclui `search-progress.js` e os dois arquivos de licença. |
 | Smoke test do wheel instalado | Venv novo fora do repositório; versão 0.3.0, Maigret 0.6.6, base oficial, busca HTTP local, health, HTML, CSS e JavaScript passaram. |
 | Maigret real com HTTP local | 3 verificações concluídas, 1 inconclusiva e 1 perfil sintético encontrado. |
-| Resultados incrementais no navegador | Chromium 153.0.8010.47, desktop 1440×900 e mobile 390×844; primeiro perfil apareceu em 1,791s / 1,805s enquanto a fixture lenta ainda aguardava; progresso 1/2, no máximo uma requisição simultânea, nenhum reload ou problema no console. |
+| Resultados incrementais no navegador | Chromium 153.0.8010.47, desktop 1440×900 e mobile 390×844; primeiro perfil apareceu em 1,796s / 1,872s enquanto a fixture lenta ainda aguardava; progresso 1/2, no máximo uma requisição simultânea, nenhum reload ou problema no console. |
+| Reconciliação final e status visível | Perfis corrigidos substituíram cartões antigos, perfis retirados desapareceram, conclusão e recuperação de busca indisponível ficaram visíveis e o estado busy foi limpo quando o polling parou. |
 | Alternativa sem JavaScript | Busca permaneceu em HTML renderizado no servidor com link de atualização manual; nenhuma requisição de script no navegador com JavaScript desativado. |
 | Renderização segura e recuperação | Conteúdo semelhante a HTML permaneceu inerte, links `javascript:` foram rejeitados, links seguros usaram `noopener noreferrer` e o polling parou após três respostas 503. |
 | Acessibilidade e layout | Movimento reduzido e texto a 200% em 320px passaram sem overflow horizontal. |
-| Benchmark de payloads | Duas buscas sintéticas de 500 sites: 14 mensagens de progresso, 12.797 bytes incrementais vs. 37.373 bytes cumulativos de referência (65,8% menor); primeira / segunda busca em 4,303s / 3,249s. |
+| Benchmark de payloads | Duas buscas sintéticas de 500 sites: 14 mensagens, 14.993 bytes de JSONL incremental no formato do worker vs. 42.984 bytes da referência cumulativa (65,1% menor); primeira / segunda busca em 4,150s / 3,008s. |
 | Configuração Compose | `docker compose config --quiet` passou. Não foi feito build local da imagem; a implantação fará essa verificação separadamente. |
 
 O benchmark usa Linux x86_64, Python 3.12.12, Maigret 0.6.6, 20 conexões, um worker e fixture HTTP local com atraso de 5ms. Esses tempos e tamanhos de payload não preveem a latência de sites públicos; o Deeper não controla a resposta de plataformas externas. [`PERFORMANCE.md`](PERFORMANCE.md) registra o método e a amostra menor de 100 sites, na qual quatro eventos esparsos tiveram um payload incremental ligeiramente maior que a referência cumulativa.

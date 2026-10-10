@@ -6,8 +6,9 @@
 
   const progress = results.querySelector('[data-search-progress]');
   const progressLabel = results.querySelector('[data-progress-label]');
-  const liveStatus = results.querySelector('[data-update-status]');
+  const liveStatus = document.querySelector('[data-update-status]');
   const updateError = results.querySelector('[data-update-error]');
+  const searchState = results.querySelector('[data-search-state]');
   const resultHeading = results.querySelector('[data-results-heading]');
   const resultCount = results.querySelector('[data-result-count]');
   const resultLabel = results.querySelector('[data-result-label]');
@@ -149,6 +150,22 @@
     return true;
   }
 
+  function reconcileProfiles(profiles) {
+    profileGrid.replaceChildren();
+    seenProfiles.clear();
+    for (const profile of profiles) {
+      if (seenProfiles.has(profile.name)) continue;
+      profileGrid.append(createProfile(profile));
+      seenProfiles.add(profile.name);
+    }
+    const hasProfiles = seenProfiles.size > 0;
+    resultHeading.hidden = !hasProfiles;
+    profileNote.hidden = !hasProfiles;
+    emptyState.hidden = true;
+    resultCount.textContent = String(seenProfiles.size);
+    resultLabel.textContent = seenProfiles.size === 1 ? 'perfil encontrado' : 'perfis encontrados';
+  }
+
   function validateUpdate(update) {
     if (update === null || typeof update !== 'object' || Array.isArray(update)
         || !validStates.has(update.state)
@@ -158,7 +175,8 @@
         || !Number.isSafeInteger(update.elapsed) || update.elapsed < 0
         || !Number.isSafeInteger(update.cursor) || update.cursor < cursor
         || !Array.isArray(update.profiles)
-        || update.cursor !== cursor + update.profiles.length
+        || typeof update.reconcile !== 'boolean'
+        || (!update.reconcile && update.cursor !== cursor + update.profiles.length)
         || typeof update.error !== 'string'
         || !update.profiles.every(validProfile)) {
       throw new Error('Resposta de progresso inválida');
@@ -167,6 +185,8 @@
   }
 
   function updateCounters(update, addedProfiles) {
+    if (searchState && update.state === 'queued') searchState.textContent = 'Aguardando para buscar';
+    if (searchState && update.state === 'running') searchState.textContent = 'Buscando';
     if (progress) {
       progress.max = Math.max(1, update.total);
       progress.value = Math.min(update.checked, progress.max);
@@ -198,11 +218,17 @@
     stopped = true;
     results.setAttribute('aria-busy', 'false');
     if (scanner) scanner.hidden = true;
-    if (liveStatus) liveStatus.textContent = 'Esta busca não está mais disponível. Atualize a página para conferir os resultados.';
+    if (searchState) searchState.textContent = 'Busca indisponível';
+    updateError.hidden = false;
+    updateError.textContent = 'Esta busca não está mais disponível. Atualize a página para conferir os resultados.';
+    if (liveStatus) liveStatus.textContent = updateError.textContent;
   }
 
   function stopAfterFailures() {
     stopped = true;
+    results.setAttribute('aria-busy', 'false');
+    if (scanner) scanner.hidden = true;
+    if (searchState) searchState.textContent = 'Atualização interrompida';
     updateError.hidden = false;
     updateError.textContent = 'Não foi possível atualizar os resultados agora. A busca pode continuar em segundo plano; atualize a página para conferir o que já foi encontrado.';
     if (liveStatus) liveStatus.textContent = updateError.textContent;
@@ -212,6 +238,10 @@
     stopped = true;
     results.setAttribute('aria-busy', 'false');
     if (scanner) scanner.hidden = true;
+    if (searchState) {
+      searchState.textContent = update.state === 'done' ? 'Busca concluída'
+        : update.state === 'partial' ? 'Busca parcial concluída' : 'Busca encerrada com erro';
+    }
     if (update.state === 'partial') {
       terminalMessage.hidden = false;
       terminalMessage.textContent = 'O tempo da busca terminou. Os resultados obtidos até agora estão abaixo.';
@@ -237,6 +267,9 @@
 
   function showUnavailableError() {
     stopped = true;
+    results.setAttribute('aria-busy', 'false');
+    if (scanner) scanner.hidden = true;
+    if (searchState) searchState.textContent = 'Busca indisponível';
     updateError.hidden = false;
     updateError.textContent = 'Não foi possível validar esta busca. Atualize a página para conferir os resultados.';
     if (liveStatus) liveStatus.textContent = updateError.textContent;
@@ -262,8 +295,14 @@
       }
       const update = validateUpdate(await response.json());
       let addedProfiles = 0;
-      for (const profile of update.profiles) {
-        if (appendProfile(profile)) addedProfiles += 1;
+      if (update.reconcile) {
+        const previousCount = seenProfiles.size;
+        reconcileProfiles(update.profiles);
+        addedProfiles = Math.max(0, seenProfiles.size - previousCount);
+      } else {
+        for (const profile of update.profiles) {
+          if (appendProfile(profile)) addedProfiles += 1;
+        }
       }
       cursor = update.cursor;
       failures = 0;

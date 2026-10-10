@@ -3,9 +3,9 @@ import json
 import time
 
 import pytest
+from test_jobs import complete_runner, manager_type, wait_for_job
 
 from deeper.config import Settings
-from test_jobs import complete_runner, manager_type, wait_for_job
 
 
 def test_completed_search_reuses_same_session_job_without_running_again():
@@ -39,7 +39,8 @@ def test_cache_can_be_disabled():
 
 def test_expired_cache_runs_fresh_search(monkeypatch):
     from types import SimpleNamespace
-    import deeper.jobs as jobs
+
+    from deeper import jobs
     clock = [100.0]
     monkeypatch.setattr(jobs, 'time', SimpleNamespace(monotonic=lambda: clock[0]))
     with manager_type()(Settings(cache_ttl=60), runner=complete_runner) as manager:
@@ -119,7 +120,8 @@ def test_progress_delta_payloads_are_smaller_than_cumulative_snapshots(monkeypat
 
     assert len(events) == len(cumulative)
     assert all('profiles_delta' in event and 'profiles' not in event for event in events)
-    delta_bytes = sum(len(json.dumps(event, separators=(',', ':')).encode()) for event in events)
-    cumulative_bytes = sum(len(json.dumps(event, separators=(',', ':')).encode())
+    delta_bytes = sum(len((json.dumps(event, ensure_ascii=False) + '\n').encode())
+                      for event in events)
+    cumulative_bytes = sum(len((json.dumps(event, ensure_ascii=False) + '\n').encode())
                            for event in cumulative)
     assert delta_bytes < cumulative_bytes

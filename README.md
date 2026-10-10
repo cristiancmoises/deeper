@@ -113,9 +113,8 @@ env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m deeper --host 0.0.0.0 --port 8
 ```
 
 `/health` reports whether the Maigret package is available; it does not check
-connectivity to every platform. To install the included wheel after installing
-the lock file, run
-`pip install --no-deps wheels/deeper_maigret-0.3.0-py3-none-any.whl`.
+connectivity to every platform. The commands above install the package from the
+current checkout after installing its locked runtime dependencies.
 
 ## Searches, limits, and freshness
 

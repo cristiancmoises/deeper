@@ -36,17 +36,18 @@ retornou 50 perfis CLAIMED, 400 sites ausentes e 50 verificações inconclusivas
 | Medida | Observado |
 | --- | ---: |
 | Mensagens de progresso em execução, duas buscas | 14 |
-| Payload JSON incremental total | 12.797 bytes |
-| Referência com snapshot cumulativo | 37.373 bytes |
-| Redução dos payloads de progresso | 65,8% |
-| Busca sintética fria / segunda | 4,303s / 3,249s |
-| Repetição de resultado em cache | 0,305ms, 0 requisições HTTP |
-| Pico de RSS de um worker | 96,6 MiB |
+| JSONL incremental no formato do worker | 14.993 bytes |
+| Referência cumulativa no mesmo formato JSONL | 42.984 bytes |
+| Redução dos payloads de progresso | 65,1% |
+| Busca sintética fria / segunda | 4,150s / 3,008s |
+| Repetição de resultado em cache | 0,312ms, 0 requisições HTTP |
+| Pico de RSS de um worker | 96,8 MiB |
 
-Os tamanhos comparam os eventos incrementais emitidos com uma referência que
-repete todos os perfis acumulados em cada evento correspondente. Em uma amostra
+Os tamanhos serializam os mesmos objetos no formato JSON e newline do worker,
+comparando os eventos incrementais com uma referência que repete todos os
+perfis acumulados em cada evento correspondente. Em uma amostra
 separada de 100 sites, com apenas quatro mensagens de progresso, os deltas
-somaram 434 bytes contra 410 bytes cumulativos; aquela amostra esparsa não teve
+somaram 622 bytes contra 598 bytes cumulativos; aquela amostra esparsa não teve
 ganho. A redução depende da quantidade e do tamanho dos eventos. Essas medições
 não aceleram as verificações externas do Maigret nem preveem a latência de sites
 públicos.

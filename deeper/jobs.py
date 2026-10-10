@@ -1,9 +1,9 @@
 """Private, expiring in-memory jobs and bounded isolated worker processes."""
-from concurrent.futures import ThreadPoolExecutor
-from copy import deepcopy
 import secrets
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 
 from .config import Settings
 from .engine import validate_username
@@ -68,6 +68,7 @@ class JobManager:
                 'created': time.monotonic(), 'started': None, 'finished': None,
                 'checked': 0, 'total': self.settings.top_sites, 'unknown': 0,
                 'profiles': [], 'profile_events': [], 'profile_names': set(),
+                'reconcile_profiles': False,
                 'error': '', 'cache_reused': False,
             }
             self._executor.submit(self._execute, token)
@@ -79,7 +80,7 @@ class JobManager:
             job = self._jobs.get(token)
             if job is None or job['owner'] != owner:
                 return None
-            internal = {'owner', 'profile_events', 'profile_names'}
+            internal = {'owner', 'profile_events', 'profile_names', 'reconcile_profiles'}
             snapshot = deepcopy({key: value for key, value in job.items()
                                  if key not in internal})
             snapshot['cursor'] = len(job['profile_events'])
@@ -100,12 +101,14 @@ class JobManager:
             if after < 0 or after > cursor:
                 raise ValueError('Invalid update cursor')
             endpoint = job['finished'] or time.monotonic()
+            reconcile = job['reconcile_profiles']
             return {
                 'state': job['state'], 'checked': job['checked'],
                 'total': job['total'], 'unknown': job['unknown'],
                 'elapsed': int(endpoint - (job['started'] or job['created'])),
-                'cursor': cursor,
-                'profiles': deepcopy(job['profile_events'][after:]),
+                'cursor': cursor, 'reconcile': reconcile,
+                'profiles': deepcopy(job['profiles'] if reconcile
+                                     else job['profile_events'][after:]),
                 'error': job['error'],
             }
 
@@ -145,6 +148,7 @@ class JobManager:
             if 'profiles' in report:
                 job['profiles'] = deepcopy(report['profiles'])
                 self._index_profiles(job, report['profiles'])
+                job['reconcile_profiles'] = job['profiles'] != job['profile_events']
             # The worker's message is never allowed to reveal private exceptions.
             if report.get('state') == 'error':
                 job['error'] = 'Não foi possível concluir a busca. Tente novamente.'
@@ -163,7 +167,7 @@ class JobManager:
                 state = 'error'
         except TimeoutError:
             state = 'partial'
-        except Exception:
+        except Exception:  # noqa: BLE001 - keep private worker details out of responses
             state = 'error'
         finally:
             with self._lock:
