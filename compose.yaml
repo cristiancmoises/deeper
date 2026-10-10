@@ -31,7 +31,8 @@ services:
     cap_drop:
       - ALL
     pids_limit: 128
-    mem_limit: 1g
+    mem_limit: 512m
+    memswap_limit: 1g
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=10)"]
       interval: 30s
