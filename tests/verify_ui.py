@@ -71,6 +71,8 @@ def main():
         hostile_release = threading.Event()
         retry_started = threading.Event()
         retry_release = threading.Event()
+        stalled_started = threading.Event()
+        stalled_release = threading.Event()
         reconcile_started = threading.Event()
         reconcile_release = threading.Event()
         unavailable_started = threading.Event()
@@ -99,6 +101,12 @@ def main():
                     raise TimeoutError()
                 return {'state': 'done', 'checked': 2, 'total': 2,
                         'unknown': 2, 'profiles': []}
+            if username == 'stalled':
+                stalled_started.set()
+                if not stalled_release.wait(10):
+                    raise TimeoutError()
+                return {'state': 'done', 'checked': 1, 'total': 1,
+                        'unknown': 1, 'profiles': []}
             if username == 'reconcile':
                 stale = {'name': 'First', 'url': 'https://example.com/old',
                          'tags': [], 'details': [], 'links': [], 'similar': False}
@@ -400,6 +408,51 @@ def main():
                     finally:
                         retry_release.set()
                         retry_context.close()
+
+                    stalled_context = browser.new_context(java_script_enabled=True,
+                        viewport={'width': 1024, 'height': 768})
+                    stalled_page = stalled_context.new_page()
+                    stalled_page.add_init_script('''
+                        (() => {
+                          const nativeSetTimeout = window.setTimeout.bind(window);
+                          window.setTimeout = (callback, delay, ...args) =>
+                            nativeSetTimeout(callback, Math.min(Number(delay) || 0, 50), ...args);
+                          const nativeFetch = window.fetch.bind(window);
+                          window.__stalledPollAttempts = 0;
+                          window.fetch = (input, options = {}) => {
+                            const requestUrl = new URL(input, window.location.href);
+                            if (!requestUrl.pathname.endsWith('/updates')) {
+                              return nativeFetch(input, options);
+                            }
+                            window.__stalledPollAttempts += 1;
+                            return new Promise((resolve, reject) => {
+                              const fail = () => reject(new DOMException('Aborted', 'AbortError'));
+                              if (options.signal?.aborted) fail();
+                              else options.signal?.addEventListener('abort', fail, {once: true});
+                            });
+                          };
+                        })();
+                    ''')
+                    stalled_page.goto(base)
+                    stalled_page.get_by_role('searchbox', name='Nome de usuário').fill('stalled')
+                    stalled_page.get_by_role('searchbox', name='Nome de usuário').press('Enter')
+                    stalled_page.locator('.results').wait_for(state='attached')
+                    assert stalled_started.wait(3)
+                    try:
+                        stalled_page.locator('[data-update-error]').wait_for(
+                            state='visible', timeout=7000)
+                        assert 'atualize a página' in stalled_page.locator(
+                            '[data-update-error]').inner_text().lower()
+                        assert stalled_page.locator('.search-status h2').inner_text() == (
+                            'Atualização interrompida @stalled')
+                        assert stalled_page.evaluate('window.__stalledPollAttempts') == 3
+                        stalled_page.wait_for_timeout(1300)
+                        assert stalled_page.evaluate('window.__stalledPollAttempts') == 3
+                        assert stalled_page.locator('.results').get_attribute('aria-busy') == 'false'
+                        evidence['stalled_poll_stops_after_timeouts'] = 3
+                    finally:
+                        stalled_release.set()
+                        stalled_context.close()
 
                     unavailable_context = browser.new_context(java_script_enabled=True,
                         viewport={'width': 1024, 'height': 768})

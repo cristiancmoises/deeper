@@ -94,8 +94,9 @@ limpeza global do Docker ou da VPS.
 
 ## Instalação Python
 
-Python **3.11 e 3.12** foram validados. Instale as dependências fixadas com
-hashes e execute a aplicação:
+O Deeper é destinado ao Python **3.11 e 3.12**. Esta versão 0.3.0 foi validada
+com Python 3.12; o Python 3.11 não foi revalidado nesta release. Instale as
+dependências fixadas com hashes e execute a aplicação:
 
 ```sh
 python3 -m venv .venv

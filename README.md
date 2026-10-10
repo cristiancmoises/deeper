@@ -91,8 +91,9 @@ global Docker or VPS cleanup commands.
 
 ## Python installation
 
-Python **3.11 and 3.12** were validated. Install the pinned, hashed dependencies
-and run the application:
+Deeper targets Python **3.11 and 3.12**. This 0.3.0 release was validated on
+Python 3.12; Python 3.11 was not rerun for this release. Install the pinned,
+hashed dependencies and run the application:
 
 ```sh
 python3 -m venv .venv

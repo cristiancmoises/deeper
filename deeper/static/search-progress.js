@@ -20,6 +20,7 @@
   const scanner = results.querySelector('.scanner');
   const terminalStates = new Set(['done', 'partial', 'error']);
   const validStates = new Set(['queued', 'running', ...terminalStates]);
+  const updateRequestTimeoutMs = 10_000;
   const seenProfiles = new Set(Array.from(
     results.querySelectorAll('.profile[data-profile-name]'),
     (card) => card.dataset.profileName,
@@ -278,15 +279,19 @@
   async function poll() {
     if (stopped || inFlight) return;
     inFlight = true;
+    let abortTimeout;
     try {
       const requestUrl = new URL(endpoint.href);
       requestUrl.searchParams.set('after', String(cursor));
+      const controller = new AbortController();
+      abortTimeout = window.setTimeout(() => controller.abort(), updateRequestTimeoutMs);
       const response = await fetch(requestUrl.href, {
         method: 'GET',
         headers: { Accept: 'application/json' },
         cache: 'no-store',
         credentials: 'same-origin',
         mode: 'same-origin',
+        signal: controller.signal,
       });
       if (!response.ok) {
         if (response.status >= 500 || response.status === 429) throw new Error('Servidor indisponível');
@@ -312,6 +317,7 @@
       failures += 1;
       if (failures >= 3) stopAfterFailures();
     } finally {
+      if (abortTimeout !== undefined) window.clearTimeout(abortTimeout);
       inFlight = false;
       if (!stopped) window.setTimeout(poll, 1000);
     }
