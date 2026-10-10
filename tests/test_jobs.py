@@ -39,6 +39,86 @@ def test_job_is_private_to_its_owner_and_snapshot_cannot_mutate_store():
         assert len(manager.snapshot(token, 'owner-a')['profiles']) == 1
 
 
+def test_updates_return_only_new_profiles_and_are_private():
+    first = {'name': 'First', 'url': 'https://example.com/first', 'tags': [],
+             'details': [], 'links': [], 'similar': False}
+    second = {'name': 'Second', 'url': 'https://example.com/second', 'tags': [],
+              'details': [], 'links': [], 'similar': False}
+    first_sent = threading.Event()
+    release_second = threading.Event()
+    second_sent = threading.Event()
+
+    def runner(username, settings, emit):
+        emit({'state': 'running', 'checked': 1, 'total': 2, 'unknown': 0,
+              'profiles_delta': [first]})
+        first_sent.set()
+        assert release_second.wait(2)
+        emit({'state': 'running', 'checked': 2, 'total': 2, 'unknown': 0,
+              'profiles_delta': [second]})
+        second_sent.set()
+        return {'state': 'done', 'checked': 2, 'total': 2, 'unknown': 0,
+                'profiles': [first, second]}
+
+    with manager_type()(Settings(), runner=runner) as manager:
+        token = manager.submit('synthetic', 'owner-a')
+        try:
+            assert first_sent.wait(2)
+            first_page = manager.updates(token, 'owner-a', 0)
+            assert first_page is not None
+            assert first_page['cursor'] == 1
+            assert first_page['profiles'] == [first]
+            assert manager.updates(token, 'owner-b', 0) is None
+            release_second.set()
+            assert second_sent.wait(2)
+            second_page = manager.updates(token, 'owner-a', 1)
+            assert second_page is not None
+            assert second_page['cursor'] == 2
+            assert second_page['profiles'] == [second]
+        finally:
+            release_second.set()
+
+
+def test_final_report_reconciles_without_duplicate_events():
+    first = {'name': 'First', 'url': 'https://example.com/first', 'tags': [],
+             'details': [], 'links': [], 'similar': False}
+    second = {'name': 'Second', 'url': 'https://example.com/second', 'tags': [],
+              'details': [], 'links': [], 'similar': False}
+
+    def runner(username, settings, emit):
+        emit({'state': 'running', 'checked': 1, 'total': 2, 'unknown': 0,
+              'profiles_delta': [first]})
+        return {'state': 'done', 'checked': 2, 'total': 2, 'unknown': 0,
+                'profiles': [first, second]}
+
+    with manager_type()(Settings(), runner=runner) as manager:
+        token = manager.submit('synthetic', 'owner')
+        job = wait_for_job(manager, token, 'owner')
+        updates = manager.updates(token, 'owner', 0)
+        assert updates is not None
+        assert job['profiles'] == [first, second]
+        assert updates['cursor'] == 2
+        assert updates['profiles'] == [first, second]
+
+
+def test_snapshot_exposes_cursor_not_internal_event_storage():
+    with manager_type()(Settings(), runner=complete_runner) as manager:
+        token = manager.submit('synthetic', 'owner')
+        job = wait_for_job(manager, token, 'owner')
+        assert job['cursor'] == 1
+        assert len(job['profiles']) == 1
+        assert 'profile_events' not in job
+        assert 'profile_names' not in job
+
+
+@pytest.mark.parametrize('after', [-1, 2])
+def test_updates_reject_negative_or_future_cursors(after):
+    with manager_type()(Settings(), runner=complete_runner) as manager:
+        token = manager.submit('synthetic', 'owner')
+        wait_for_job(manager, token, 'owner')
+        with pytest.raises(ValueError):
+            manager.updates(token, 'owner', after)
+
+
 def test_running_duplicate_and_refresh_do_not_start_more_jobs():
     release = threading.Event()
 

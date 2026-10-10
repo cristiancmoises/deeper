@@ -80,6 +80,35 @@ def test_worker_reuses_pid_and_database_but_clones_sites_per_search(launch_worke
     assert started[0].poll() is not None
 
 
+def test_worker_protocol_emits_deltas_then_authoritative_final_report(launch_worker):
+    launch_worker("""
+import deeper.worker as worker
+first = {'name': 'Alpha', 'url': 'https://example.com/alpha'}
+second = {'name': 'Zulu', 'url': 'https://example.com/zulu'}
+worker.load_sites = lambda settings: {}
+async def search(username, settings, emit, *, sites):
+    emit({'state': 'running', 'checked': 1, 'total': 2, 'unknown': 0,
+          'profiles_delta': [first]})
+    return {'state': 'done', 'checked': 2, 'total': 2, 'unknown': 1,
+            'profiles': [first, second]}
+worker.search_username = search
+raise SystemExit(worker.main())
+""")
+    events = []
+    with pool_type()(Settings(workers=1)) as pool:
+        report = pool.run('synthetic', pool.settings, events.append)
+
+    assert len(events) == 2
+    assert events[0]['state'] == 'running'
+    assert events[0]['profiles_delta'] == [{'name': 'Alpha', 'url': 'https://example.com/alpha'}]
+    assert 'profiles' not in events[0]
+    assert report['state'] == 'done'
+    assert report['profiles'] == [
+        {'name': 'Alpha', 'url': 'https://example.com/alpha'},
+        {'name': 'Zulu', 'url': 'https://example.com/zulu'},
+    ]
+
+
 def test_worker_recycles_after_configured_number_of_queries(launch_worker, synthetic_sites, tmp_path):
     started = launch_worker(local_worker_script(synthetic_sites, tmp_path / 'loads'))
     with pool_type()(Settings(workers=1, worker_max_jobs=2)) as pool:

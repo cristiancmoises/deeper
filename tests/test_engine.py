@@ -141,3 +141,34 @@ def test_progress_snapshots_do_not_repeat_profile_normalization(monkeypatch):
     progress.update(result)
     assert progress.snapshot()['profiles'] == []
     assert progress.snapshot()['unknown'] == 1
+
+
+def test_progress_reports_new_profiles_as_deltas_and_final_profiles_as_full_list(monkeypatch):
+    from types import SimpleNamespace
+
+    from deeper.config import Settings
+
+    implementation = engine()
+    clock = iter([1.0, 2.0])
+    monkeypatch.setattr(implementation, 'time', SimpleNamespace(monotonic=lambda: next(clock)))
+    first = MaigretCheckResult('synthetic', 'Zulu', 'https://example.com/zulu',
+        MaigretCheckStatus.CLAIMED, ids_data={'fullname': 'Zulu User'})
+    second = MaigretCheckResult('synthetic', 'Alpha', 'https://example.com/alpha',
+        MaigretCheckStatus.CLAIMED, ids_data={'fullname': 'Alpha User'})
+
+    async def search(**kwargs):
+        kwargs['query_notify'].update(first)
+        kwargs['query_notify'].update(second)
+
+    monkeypatch.setattr('maigret.search', search)
+    events = []
+    report = asyncio.run(implementation.search_username(
+        'synthetic', Settings(), events.append, sites={'Zulu': object(), 'Alpha': object()}))
+
+    running = [event for event in events if event['state'] == 'running']
+    assert len(running) == 3
+    assert running[0]['profiles_delta'] == []
+    assert [event['profiles_delta'][0]['name'] for event in running[1:]] == ['Zulu', 'Alpha']
+    assert all('profiles' not in event for event in running)
+    assert [profile['name'] for profile in report['profiles']] == ['Alpha', 'Zulu']
+    assert events[-1]['profiles'] == report['profiles']

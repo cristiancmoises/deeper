@@ -89,10 +89,32 @@ raise SystemExit(worker.main())
     settings = Settings(top_sites=args.sites, workers=1, site_timeout=3, search_timeout=30)
     times, reports = [], []
     rss = []
+    payloads = {'messages': 0, 'delta_bytes': 0, 'cumulative_reference_bytes': 0}
+    profiles_by_job = {}
+    profile_names_by_job = {}
     original_update = JobManager._update
 
     def observe_update(manager, token, report):
         rss.append(report.pop('_benchmark_rss_bytes', 0))
+        if report.get('state') == 'running' and 'profiles_delta' in report:
+            profiles = profiles_by_job.setdefault(token, [])
+            names = profile_names_by_job.setdefault(token, set())
+            for profile in report['profiles_delta']:
+                name = profile.get('name') if isinstance(profile, dict) else None
+                if isinstance(name, str) and name not in names:
+                    names.add(name)
+                    profiles.append(profile)
+            counters = {key: report[key] for key in ('state', 'checked', 'total', 'unknown')
+                        if key in report}
+            delta_event = dict(counters, profiles_delta=report['profiles_delta'])
+            cumulative_event = dict(counters, profiles=profiles)
+            payloads['messages'] += 1
+            payloads['delta_bytes'] += len(
+                (json.dumps(delta_event, ensure_ascii=False, separators=(',', ':')) + '\n')
+                .encode('utf-8'))
+            payloads['cumulative_reference_bytes'] += len(
+                (json.dumps(cumulative_event, ensure_ascii=False, separators=(',', ':')) + '\n')
+                .encode('utf-8'))
         return original_update(manager, token, report)
 
     JobManager._update = observe_update
@@ -141,6 +163,7 @@ raise SystemExit(worker.main())
         'repeat_seconds': repeat_seconds, 'repeat_cache_hit': cache_hit,
         'repeat_http_requests': requests['total'] - count_before_cache,
         'spawned_processes': len(children), 'peak_single_worker_rss_bytes': max(rss, default=0),
+        'progress_payloads': payloads,
         'reports': reports, 'http_requests': requests['total'],
         'limits': 'Local measurements only; excludes Docker image, public-site latency and VPS hardware.',
     }

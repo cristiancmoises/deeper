@@ -1,4 +1,5 @@
 """Cache must save work without leaking profiles or hiding stale/error results."""
+import json
 import time
 
 import pytest
@@ -92,3 +93,33 @@ def test_performance_settings_read_from_environment(monkeypatch):
     assert settings.cache_ttl == 0
     assert settings.worker_max_jobs == 3
     assert settings.worker_idle_timeout == 45
+
+
+def test_progress_delta_payloads_are_smaller_than_cumulative_snapshots(monkeypatch):
+    from types import SimpleNamespace
+
+    from maigret.result import MaigretCheckResult, MaigretCheckStatus
+
+    import deeper.engine as implementation
+
+    clock = iter(float(index) for index in range(1, 21))
+    # Make every synthetic update observable while leaving unrelated clocks real.
+    monkeypatch.setattr(implementation, 'time', SimpleNamespace(monotonic=lambda: next(clock)))
+    events = []
+    progress = implementation._Progress(20, events.append)
+    cumulative = []
+    for index in range(20):
+        result = MaigretCheckResult('synthetic', f'Site {index}',
+            f'https://example.com/{index}', MaigretCheckStatus.CLAIMED,
+            ids_data={'bio': 'A representative profile description.' * 4})
+        progress.update(result)
+        snapshot = progress.snapshot()
+        cumulative.append({'state': 'running', 'checked': index + 1,
+            'total': 20, 'unknown': 0, 'profiles': snapshot['profiles']})
+
+    assert len(events) == len(cumulative)
+    assert all('profiles_delta' in event and 'profiles' not in event for event in events)
+    delta_bytes = sum(len(json.dumps(event, separators=(',', ':')).encode()) for event in events)
+    cumulative_bytes = sum(len(json.dumps(event, separators=(',', ':')).encode())
+                           for event in cumulative)
+    assert delta_bytes < cumulative_bytes

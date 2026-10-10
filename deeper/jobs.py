@@ -67,7 +67,8 @@ class JobManager:
                 'owner': owner, 'username': username, 'state': 'queued',
                 'created': time.monotonic(), 'started': None, 'finished': None,
                 'checked': 0, 'total': self.settings.top_sites, 'unknown': 0,
-                'profiles': [], 'error': '', 'cache_reused': False,
+                'profiles': [], 'profile_events': [], 'profile_names': set(),
+                'error': '', 'cache_reused': False,
             }
             self._executor.submit(self._execute, token)
             return token
@@ -78,7 +79,10 @@ class JobManager:
             job = self._jobs.get(token)
             if job is None or job['owner'] != owner:
                 return None
-            snapshot = deepcopy({key: value for key, value in job.items() if key != 'owner'})
+            internal = {'owner', 'profile_events', 'profile_names'}
+            snapshot = deepcopy({key: value for key, value in job.items()
+                                 if key not in internal})
+            snapshot['cursor'] = len(job['profile_events'])
             reused = snapshot.pop('cache_reused')
             snapshot['cache_age'] = (max(0, int(time.monotonic() - job['finished']))
                                      if reused else None)
@@ -86,14 +90,61 @@ class JobManager:
             snapshot['elapsed'] = int(endpoint - (job['started'] or job['created']))
             return snapshot
 
+    def updates(self, token: str, owner: str, after: int) -> dict | None:
+        with self._lock:
+            self._expire_locked()
+            job = self._jobs.get(token)
+            if job is None or job['owner'] != owner:
+                return None
+            cursor = len(job['profile_events'])
+            if after < 0 or after > cursor:
+                raise ValueError('Invalid update cursor')
+            endpoint = job['finished'] or time.monotonic()
+            return {
+                'state': job['state'], 'checked': job['checked'],
+                'total': job['total'], 'unknown': job['unknown'],
+                'elapsed': int(endpoint - (job['started'] or job['created'])),
+                'cursor': cursor,
+                'profiles': deepcopy(job['profile_events'][after:]),
+                'error': job['error'],
+            }
+
+    @staticmethod
+    def _index_profiles(job, profiles):
+        if not isinstance(profiles, list):
+            return []
+        limit = job['total']
+        if not isinstance(limit, int) or limit <= 0:
+            return []
+        added = []
+        for profile in profiles:
+            if not isinstance(profile, dict) or not isinstance(profile.get('name'), str):
+                continue
+            name = profile['name']
+            if name in job['profile_names']:
+                continue
+            if len(job['profile_events']) >= limit:
+                break
+            saved = deepcopy(profile)
+            job['profile_names'].add(name)
+            job['profile_events'].append(saved)
+            added.append(saved)
+        return added
+
     def _update(self, token: str, report: dict):
         with self._lock:
             job = self._jobs.get(token)
             if job is None:
                 return
-            for name in ('checked', 'total', 'unknown', 'profiles'):
+            for name in ('checked', 'total', 'unknown'):
                 if name in report:
                     job[name] = deepcopy(report[name])
+            if 'profiles_delta' in report:
+                added = self._index_profiles(job, report['profiles_delta'])
+                job['profiles'].extend(deepcopy(added))
+            if 'profiles' in report:
+                job['profiles'] = deepcopy(report['profiles'])
+                self._index_profiles(job, report['profiles'])
             # The worker's message is never allowed to reveal private exceptions.
             if report.get('state') == 'error':
                 job['error'] = 'Não foi possível concluir a busca. Tente novamente.'

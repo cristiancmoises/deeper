@@ -93,6 +93,8 @@ class _Progress:
         self.emit = emit
         self.results = {}
         self.profiles = {}
+        self.pending_profiles = {}
+        self.sent_profiles = set()
         self.last_emit = 0.0
 
     def start(self, *args, **kwargs):
@@ -109,11 +111,16 @@ class _Progress:
     enrich = warning
 
     def update(self, result, is_similar=False):
-        self.record(result, is_similar)
+        profile = self.record(result, is_similar)
+        site_name = result.site_name
+        if profile is None:
+            self.pending_profiles.pop(site_name, None)
+        elif site_name not in self.sent_profiles:
+            self.pending_profiles[site_name] = profile
         now = time.monotonic()
         if now - self.last_emit >= 0.5:
             self.last_emit = now
-            self.emit(self.snapshot())
+            self.emit(self.progress_update())
 
     def record(self, result, is_similar=False):
         self.results[result.site_name] = result.status
@@ -121,6 +128,18 @@ class _Progress:
             self.profiles[result.site_name] = profile
         else:
             self.profiles.pop(result.site_name, None)
+        return profile
+
+    def progress_update(self):
+        from maigret.result import MaigretCheckStatus
+        profiles_delta = sorted(self.pending_profiles.values(),
+                                key=lambda profile: profile['name'].casefold())
+        self.sent_profiles.update(self.pending_profiles)
+        self.pending_profiles.clear()
+        return {'state': 'running', 'checked': len(self.results), 'total': self.total,
+                'unknown': sum(status == MaigretCheckStatus.UNKNOWN
+                               for status in self.results.values()),
+                'profiles_delta': profiles_delta}
 
     def snapshot(self, state='running'):
         from maigret.result import MaigretCheckStatus
@@ -137,7 +156,7 @@ async def search_username(username: str, settings: Settings, emit, *, sites=None
     if not sites:
         raise RuntimeError('No enabled sites in the Maigret database')
     progress = _Progress(len(sites), emit)
-    emit(progress.snapshot())
+    emit(progress.progress_update())
     logger = logging.getLogger('deeper.maigret')
     logger.setLevel(logging.CRITICAL)
     collected = {}
