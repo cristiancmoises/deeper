@@ -1,7 +1,7 @@
 services:
   deeper:
     build: .
-    image: deeper:0.3.0
+    image: deeper:0.4.0
     ports:
       - "${DEEPER_BIND_IP:-127.0.0.1}:${DEEPER_HOST_PORT:-8080}:8080"
     environment:
@@ -11,6 +11,7 @@ services:
       DEEPER_CONNECTIONS: "${DEEPER_CONNECTIONS:-20}"
       DEEPER_WORKERS: "${DEEPER_WORKERS:-2}"
       DEEPER_MAX_JOBS: "${DEEPER_MAX_JOBS:-64}"
+      DEEPER_MAX_JOBS_PER_SESSION: "${DEEPER_MAX_JOBS_PER_SESSION:-2}"
       DEEPER_RETENTION: "${DEEPER_RETENTION:-900}"
       DEEPER_CACHE_TTL: "${DEEPER_CACHE_TTL:-60}"
       DEEPER_WORKER_MAX_JOBS: "${DEEPER_WORKER_MAX_JOBS:-25}"

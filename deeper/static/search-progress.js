@@ -6,6 +6,7 @@
 
   const progress = results.querySelector('[data-search-progress]');
   const progressLabel = results.querySelector('[data-progress-label]');
+  const queuePosition = results.querySelector('[data-queue-position]');
   const liveStatus = document.querySelector('[data-update-status]');
   const updateError = results.querySelector('[data-update-error]');
   const searchState = results.querySelector('[data-search-state]');
@@ -31,6 +32,8 @@
   let inFlight = false;
   let stopped = false;
   let lastAnnouncedCheck = -1;
+  let lastAnnouncedState = null;
+  let lastAnnouncedQueuePosition = null;
 
   function parseCursor(value) {
     if (typeof value !== 'string' || !/^[0-9]{1,10}$/.test(value)) return null;
@@ -175,6 +178,8 @@
         || !Number.isSafeInteger(update.unknown) || update.unknown < 0
         || !Number.isSafeInteger(update.elapsed) || update.elapsed < 0
         || !Number.isSafeInteger(update.cursor) || update.cursor < cursor
+        || ('queue_position' in update && (!Number.isSafeInteger(update.queue_position)
+          || (update.state === 'queued' ? update.queue_position < 1 : update.queue_position !== 0)))
         || !Array.isArray(update.profiles)
         || typeof update.reconcile !== 'boolean'
         || (!update.reconcile && update.cursor !== cursor + update.profiles.length)
@@ -186,6 +191,12 @@
   }
 
   function updateCounters(update, addedProfiles) {
+    const position = update.state === 'queued' && Number.isSafeInteger(update.queue_position)
+      ? update.queue_position : null;
+    if (queuePosition) {
+      queuePosition.hidden = position === null;
+      queuePosition.textContent = position === null ? '' : `Posição na fila: ${position}.`;
+    }
     if (searchState && update.state === 'queued') searchState.textContent = 'Aguardando para buscar';
     if (searchState && update.state === 'running') searchState.textContent = 'Buscando';
     if (progress) {
@@ -206,12 +217,18 @@
       unknownNote.textContent = `${update.unknown} ${update.unknown === 1
         ? 'verificação inconclusiva' : 'verificações inconclusivas'}. Sites indisponíveis ou bloqueados não confirmam a ausência de um perfil.`;
     }
-    if (liveStatus && (addedProfiles || update.checked !== lastAnnouncedCheck)) {
+    if (liveStatus && (addedProfiles || update.checked !== lastAnnouncedCheck
+        || update.state !== lastAnnouncedState || position !== lastAnnouncedQueuePosition)) {
       const newProfiles = addedProfiles
         ? ` ${addedProfiles} novo${addedProfiles === 1 ? '' : 's'} perfil${addedProfiles === 1 ? '' : 'is'} encontrado${addedProfiles === 1 ? '' : 's'}.`
         : '';
-      liveStatus.textContent = `${update.checked} de ${update.total} sites verificados.${newProfiles}`;
+      liveStatus.textContent = update.state === 'queued'
+        ? position === null ? 'A busca está aguardando para começar.'
+          : `Sua busca está na posição ${position} da fila.`
+        : `${update.checked} de ${update.total} sites verificados.${newProfiles}`;
       lastAnnouncedCheck = update.checked;
+      lastAnnouncedState = update.state;
+      lastAnnouncedQueuePosition = position;
     }
   }
 
@@ -219,6 +236,7 @@
     stopped = true;
     results.setAttribute('aria-busy', 'false');
     if (scanner) scanner.hidden = true;
+    if (queuePosition) queuePosition.hidden = true;
     if (searchState) searchState.textContent = 'Busca indisponível';
     updateError.hidden = false;
     updateError.textContent = 'Esta busca não está mais disponível. Atualize a página para conferir os resultados.';
@@ -229,6 +247,7 @@
     stopped = true;
     results.setAttribute('aria-busy', 'false');
     if (scanner) scanner.hidden = true;
+    if (queuePosition) queuePosition.hidden = true;
     if (searchState) searchState.textContent = 'Atualização interrompida';
     updateError.hidden = false;
     updateError.textContent = 'Não foi possível atualizar os resultados agora. A busca pode continuar em segundo plano; atualize a página para conferir o que já foi encontrado.';
@@ -239,6 +258,7 @@
     stopped = true;
     results.setAttribute('aria-busy', 'false');
     if (scanner) scanner.hidden = true;
+    if (queuePosition) queuePosition.hidden = true;
     if (searchState) {
       searchState.textContent = update.state === 'done' ? 'Busca concluída'
         : update.state === 'partial' ? 'Busca parcial concluída' : 'Busca encerrada com erro';
@@ -270,6 +290,7 @@
     stopped = true;
     results.setAttribute('aria-busy', 'false');
     if (scanner) scanner.hidden = true;
+    if (queuePosition) queuePosition.hidden = true;
     if (searchState) searchState.textContent = 'Busca indisponível';
     updateError.hidden = false;
     updateError.textContent = 'Não foi possível validar esta busca. Atualize a página para conferir os resultados.';

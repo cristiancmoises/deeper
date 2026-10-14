@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from maigret.sites import MaigretSite
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from test_engine import synthetic_sites
 from waitress import create_server
 
@@ -55,6 +55,174 @@ def progressive_sites():
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+def verify_source_navigation(page):
+    navigation = page.get_by_role('navigation', name='Código-fonte')
+    links = navigation.get_by_role('link')
+    expect(links).to_have_count(4)
+    expected_urls = [
+        'https://git.securityops.co/cristiancmoises/deeper',
+        'https://git.securityops.com.br/cristiancmoises/deeper',
+        'https://github.com/cristiancmoises/deeper',
+        'https://codeberg.org/berkeley/deeper',
+    ]
+    for index, url in enumerate(expected_urls):
+        link = links.nth(index)
+        assert link.get_attribute('href') == url
+        assert link.get_attribute('aria-label')
+        bounds = link.bounding_box()
+        assert bounds is not None and bounds['width'] >= 32 and bounds['height'] >= 32
+        assert link.locator('img').evaluate('(image) => image.complete && image.naturalWidth > 0')
+        page.keyboard.press('Tab')
+        expect(link).to_be_focused()
+        assert link.evaluate('(element) => getComputedStyle(element).outlineStyle') != 'none'
+    bounds = navigation.bounding_box()
+    heading = page.locator('h1').bounding_box()
+    assert bounds is not None and heading is not None
+    assert bounds['y'] + bounds['height'] <= heading['y']
+    assert bounds['x'] + bounds['width'] <= page.viewport_size['width']
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+
+
+def verify_queue_updates(browser, output):
+    evidence = []
+    for width in (320, 768, 1024, 1440):
+        blocker_started = threading.Event()
+        release_blocker = threading.Event()
+        target_started = threading.Event()
+        release_target = threading.Event()
+
+        def runner(username, settings, emit, blocker_started=blocker_started,
+                   release_blocker=release_blocker, target_started=target_started,
+                   release_target=release_target):
+            started, release = ((blocker_started, release_blocker)
+                                if username == 'queue_blocker'
+                                else (target_started, release_target))
+            started.set()
+            if not release.wait(20):
+                raise TimeoutError()
+            return {'state': 'done', 'checked': 1, 'total': 1,
+                    'unknown': 1, 'profiles': []}
+
+        settings = Settings(workers=1, secret_key='synthetic-queue-qa')
+        with JobManager(settings, runner=runner) as manager:
+            manager.submit('queue_blocker', 'synthetic-blocker-owner')
+            assert blocker_started.wait(3)
+            server = create_server(create_app(settings, manager),
+                                   host='127.0.0.1', port=0, threads=4)
+            thread = threading.Thread(target=server.run, daemon=True)
+            thread.start()
+            base = f'http://127.0.0.1:{server.effective_port}'
+            context = browser.new_context(viewport={'width': width, 'height': 900})
+            page = context.new_page()
+            console_issues = []
+            page.on('console', lambda message, console_issues=console_issues:
+                    console_issues.append(message.text)
+                    if message.type in ('error', 'warning') else None)
+            page.on('pageerror', lambda error, console_issues=console_issues:
+                    console_issues.append(str(error)))
+            position: dict[str, int | None] = {'value': 3}
+
+            def queue_response(route, _request=None, *, position=position):
+                response = route.fetch()
+                payload = response.json()
+                if payload.get('state') == 'queued':
+                    if position['value'] is None:
+                        payload.pop('queue_position', None)
+                    else:
+                        payload['queue_position'] = position['value']
+                route.fulfill(response=response, json=payload)
+
+            page.route('**/updates*', queue_response)
+            try:
+                page.goto(base)
+                verify_source_navigation(page)
+                page.get_by_role('searchbox').fill('queued_user')
+                page.get_by_role('searchbox').press('Enter')
+                queue = page.locator('[data-queue-position]')
+                live = page.locator('[data-update-status]')
+                expect(queue).to_have_text('Posição na fila: 3.')
+                expect(live).to_contain_text('posição 3')
+                assert live.get_attribute('aria-live') == 'polite'
+                assert live.get_attribute('aria-atomic') == 'true'
+                results_url = page.url
+                navigations = []
+                page.on('framenavigated', lambda frame, page=page, navigations=navigations:
+                        navigations.append(frame.url)
+                        if frame == page.main_frame else None)
+                position['value'] = 5
+                expect(queue).to_have_text('Posição na fila: 5.')
+                expect(live).to_contain_text('posição 5')
+                position['value'] = 1
+                expect(queue).to_have_text('Posição na fila: 1.')
+                expect(live).to_contain_text('posição 1')
+                if width == 320:
+                    position['value'] = None
+                    expect(queue).to_be_hidden()
+                    expect(live).to_contain_text('aguardando para começar')
+                    position['value'] = 1
+                    expect(queue).to_have_text('Posição na fila: 1.')
+                assert page.locator('.profile').count() == 0
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                page.screenshot(path=str(output / f'queue-{width}.png'), full_page=True)
+                page.get_by_role('searchbox').focus()
+                page.keyboard.press('Tab')
+                expect(page.get_by_role('button', name='Pesquisar')).to_be_focused()
+                if width == 320:
+                    invalid_context = browser.new_context()
+                    invalid_page = invalid_context.new_page()
+                    invalid_requests = []
+
+                    def invalid_queue_response(route, _request=None, *, invalid_requests=invalid_requests):
+                        response = route.fetch()
+                        payload = response.json()
+                        invalid_position = ['<img src=x onerror=alert(1)>', True, -1][
+                            min(len(invalid_requests), 2)]
+                        invalid_requests.append(invalid_position)
+                        payload.update(queue_position=invalid_position, cursor=1,
+                                       profiles=[{'name': 'Invalid response profile',
+                                                  'url': 'https://example.org/invalid',
+                                                  'tags': [], 'details': [],
+                                                  'links': [], 'similar': False}])
+                        route.fulfill(response=response, json=payload)
+
+                    invalid_page.route('**/updates*', invalid_queue_response)
+                    try:
+                        invalid_page.goto(base)
+                        invalid_page.get_by_role('searchbox').fill('invalid_queue_user')
+                        invalid_page.get_by_role('searchbox').press('Enter')
+                        expect(invalid_page.locator('[data-update-error]')).to_be_visible()
+                        assert len(invalid_requests) == 3, invalid_requests
+                        assert invalid_page.locator('.profile,main img').count() == 0
+                        expect(invalid_page.locator('[data-queue-position]')).to_be_hidden()
+                    finally:
+                        invalid_context.close()
+                release_blocker.set()
+                assert target_started.wait(3)
+                expect(page.locator('[data-search-state]')).to_have_text('Buscando')
+                expect(queue).to_be_hidden()
+                expect(live).to_contain_text('sites verificados')
+                assert 'fila' not in live.inner_text().lower()
+                release_target.set()
+                expect(page.locator('[data-search-state]')).to_have_text('Busca concluída')
+                expect(queue).to_be_hidden()
+                assert page.url == results_url and not navigations
+                assert not console_issues, console_issues
+                evidence.append({'width': width, 'positions': [3, 5, 1],
+                                 'polite_queue_announcements': True,
+                                 'running_position_hidden': True,
+                                 'page_reloads_after_results': 0,
+                                 'horizontal_overflow': False,
+                                 'malformed_updates_rejected': width == 320,
+                                 'console_issues': console_issues})
+            finally:
+                release_blocker.set()
+                release_target.set()
+                context.close()
+                server.close()
+                thread.join(timeout=3)
+    return evidence
 
 
 def main():
@@ -141,6 +309,7 @@ def main():
                     browser = playwright.chromium.launch(executable_path=args.browser,
                         headless=True, args=['--disable-dev-shm-usage'])
                     evidence['browser_version'] = browser.version
+                    evidence['queue_updates'] = verify_queue_updates(browser, output)
                     for name, viewport in [('desktop', {'width': 1440, 'height': 900}),
                                            ('mobile', {'width': 390, 'height': 844})]:
                         context = browser.new_context(java_script_enabled=False, viewport=viewport)
@@ -154,7 +323,8 @@ def main():
                         assert page.get_by_role('heading', name='Deeper, início').is_visible()
                         assert page.get_by_role('searchbox', name='Nome de usuário').is_visible()
                         assert page.get_by_role('button', name='Pesquisar').is_visible()
-                        assert page.locator('nav,footer,.results').count() == 0
+                        verify_source_navigation(page)
+                        assert page.locator('footer,.results').count() == 0
                         layout = page.evaluate('''() => ({
                           width: innerWidth, scroll: document.documentElement.scrollWidth,
                           background: getComputedStyle(document.body).backgroundColor,
@@ -185,7 +355,7 @@ def main():
                         page.screenshot(path=str(output / f'results-{name}.png'), full_page=True)
                         context.close()
                         evidence['views'].append({'name': name, 'viewport': viewport,
-                            'home_only_title_and_search': True, 'native_enter_search': True,
+                            'home_search_and_source_links': True, 'native_enter_search': True,
                             'real_engine_profiles': 1, 'unknown_sites': 1, 'script_requests': 0,
                             'horizontal_overflow': False, 'background': layout['background']})
 

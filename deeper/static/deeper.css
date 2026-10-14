@@ -16,6 +16,10 @@ body { margin: 0; min-width: 240px; background: var(--black); }
 a { color: var(--cyan); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: .25em; }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; }
+.source-nav { position: absolute; top: .75rem; right: .75rem; display: flex; gap: .25rem; }
+.source-nav a { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid transparent; border-radius: .4rem; }
+.source-nav a:hover { border-color: var(--line); background: #56f5f210; }
+.source-nav img { display: block; width: 20px; height: 20px; object-fit: contain; }
 .workspace { width: min(100% - 3rem, 58rem); min-height: 100svh; margin-inline: auto; display: flex; flex-direction: column; justify-content: center; padding: 3rem 0 8rem; }
 .search-area { width: min(100%, 38rem); margin-inline: auto; }
 h1 { margin: 0 0 2.8rem; text-align: center; font-size: min(clamp(3.5rem, 10vw, 7.5rem), 18vw); font-weight: 650; letter-spacing: -.065em; line-height: 1.13; }
@@ -72,7 +76,7 @@ dd { margin: 0; color: var(--cyan-soft); white-space: pre-wrap; overflow-wrap: a
 @keyframes scan { to { transform: rotate(360deg); } }
 @media (max-width: 640px) {
   .workspace { width: calc(100% - 2.25rem); padding-bottom: 5rem; }
-  .has-results { padding-top: 2.5rem; padding-bottom: 3rem; }
+  .has-results { padding-top: 4rem; padding-bottom: 3rem; }
   .search-bar { min-height: 3.9rem; padding-left: 1.1rem; }
   .search-bar input[type="search"] { font-size: 1rem; }
   .search-bar button { flex-basis: 2.85rem; width: 2.85rem; height: 2.85rem; }

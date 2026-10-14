@@ -1,5 +1,7 @@
 .git
 .superpowers
+.serena
+tasks
 __pycache__
 *.pyc
 .pytest_cache

@@ -1,4 +1,4 @@
-# Deeper 0.3.0
+# Deeper 0.4.0
 
 **English** | [Português (Brasil)](README.pt-BR.md)
 
@@ -48,11 +48,19 @@ Open <http://127.0.0.1:8080>. Follow startup output with
 The public source repository is on
 [GitHub](https://github.com/cristiancmoises/deeper).
 
-For a small VPS, create a local `.env` file beside `compose.yaml` with:
+The default public-service profile runs **two searches at once**, accepts up to
+**64 outstanding searches** across sessions, and allows **two outstanding
+searches per browser session**. Outstanding means queued or running. The
+container is limited to 512 MiB RAM and 1 GiB combined RAM and swap; size the host
+for the reverse proxy, operating system, and other services as well.
+
+For a lower-memory, single-search profile, create a local `.env` file beside
+`compose.yaml` with:
 
 ```dotenv
 DEEPER_WORKERS=1
 DEEPER_MAX_JOBS=16
+DEEPER_MAX_JOBS_PER_SESSION=2
 ```
 
 Then run `docker compose up -d --build`. For a public self-hosted deployment,
@@ -61,39 +69,37 @@ put a reverse proxy with HTTPS in front of Deeper and set
 runs on the same host. If your proxy needs a non-loopback binding, restrict it
 with a firewall and do not expose the plain HTTP port directly to the internet.
 
-## What is included in 0.3.0
+## What is included in 0.4.0
 
-- New profiles and site-check progress appear incrementally while a search runs;
-  progress responses carry only profiles after the browser's current cursor.
-  The search engine's site limits, concurrency, and timeouts are unchanged.
-- Isolated search workers are reused: the Maigret database is loaded once per
-  process, with an independent site copy for each search. Workers start on
-  demand, are recycled after 25 searches, and exit after 120 seconds idle.
-- Completed searches for the same session and username are reused for up to
-  60 seconds. The page shows the result age; errors and partial results are not
-  reused.
-- Results and cache stay in memory. Expired jobs are removed periodically,
-  including when no new requests arrive.
-- The Docker build installs without a download cache or bytecode and copies only
-  the installed runtime into the final image. Unused dependency tests,
-  `pycountry` translations, and installation tools are removed; engine data and
-  license files are preserved.
-- Logs rotate across three 2 MB files. The container filesystem is read-only
-  and `/tmp` is a 32 MB tmpfs. Searches are not persisted in Docker volumes.
+- A fair queue shares search workers across browser sessions. Each available
+  worker takes a search from the pending session served least recently, keeping
+  submission order within each session.
+- Each session can have two queued or running searches by default. Repeating an
+  active search or reusing a fresh completed result does not consume another
+  slot. A third distinct outstanding search receives HTTP `429`; a full global
+  queue receives HTTP `503`. Both responses include `Retry-After: 5`.
+- Pending results show their current queue position, which updates as searches
+  finish and other sessions join. A queue position is an ordering hint, not a
+  promised start time.
+- Incremental profiles, reusable isolated workers, 60-second completed-result
+  reuse, and periodic in-memory cleanup remain available. Search coverage,
+  connection limits, and timeouts retain their existing defaults.
+
+The scheduling, session boundaries, and update format are described in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 Measurements and methodology are documented in
 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md). Docker image size and performance
 on external platforms must be measured in your own environment. Builds also use
 temporary storage and Docker cache; a smaller runtime does not eliminate that
 cost. Inspect local usage with `docker system df` and
-`docker image inspect deeper:0.3.0 --format '{{.Size}}'`. Deeper does not run
+`docker image inspect deeper:0.4.0 --format '{{.Size}}'`. Deeper does not run
 global Docker or VPS cleanup commands.
 
 ## Python installation
 
-Deeper targets Python **3.11 and 3.12**. This 0.3.0 release was validated on
-Python 3.12; Python 3.11 was not rerun for this release. Install the pinned,
-hashed dependencies and run the application:
+Deeper targets Python **3.11 and 3.12**. Install the pinned, hashed dependencies
+and run the application:
 
 ```sh
 python3 -m venv .venv
@@ -135,15 +141,23 @@ shows the result age; after that, it starts a new search. Set
 `DEEPER_CACHE_TTL=0` to disable completed-result reuse. Results preserve the
 distinction between CLAIMED, absent, and inconclusive.
 
-Jobs are private to the session and expire 15 minutes after completion, with
-periodic cleanup within five seconds. The queue and memory use are bounded by
-the number of jobs; older completed results may be evicted to free capacity.
-Warm workers retain memory until idle shutdown or recycling. Restarting clears
-jobs and cache; without a persistent key, it also invalidates sessions.
+At most two searches run at once by default; up to 64 queued or running jobs can
+be accepted globally. A browser session may hold two of those outstanding slots.
+When a worker becomes available, the session served least recently goes next,
+with searches kept in submission order within each session. The current queue
+position may change as other sessions join. These limits bound work; they do not
+provide unlimited concurrent searches or guarantee public-site response times.
+
+Jobs are private to the anonymous browser session and expire 15 minutes after
+completion, with periodic cleanup within five seconds. Older completed results
+may be evicted to free capacity. Warm workers retain memory until idle shutdown
+or recycling. Restarting clears jobs and cache; without a persistent key, it also
+invalidates sessions. Session quotas share capacity between browsers; they are
+not identity verification or robust protection against bots opening new sessions.
 
 Because jobs are held in memory, run a **single HTTP instance**;
 `DEEPER_WORKERS` controls search concurrency. Sessions require cookies. There is
-no recursive search, AI API, authenticated platform cookie support, or bypass
+no recursive search, authenticated platform cookie support, or bypass
 mechanism. Checks that require unconfigured DNS/Tor/I2P or an incompatible
 username format may be skipped by Maigret and counted as processed checks.
 
@@ -157,6 +171,7 @@ username format may be skipped by Maigret and counted as processed checks.
 | `DEEPER_CONNECTIONS` | `20` | Connections per search. |
 | `DEEPER_WORKERS` | `2` | Concurrent searches. |
 | `DEEPER_MAX_JOBS` | `64` | In-memory jobs, including queue and cache. |
+| `DEEPER_MAX_JOBS_PER_SESSION` | `2` | Maximum queued or running searches per browser session. |
 | `DEEPER_RETENTION` | `900` | Seconds to retain a completed job. |
 | `DEEPER_CACHE_TTL` | `60` | Reuse completed results in the same session; `0` disables it. |
 | `DEEPER_WORKER_MAX_JOBS` | `25` | Recycle a process after this many searches. |
@@ -166,12 +181,12 @@ username format may be skipped by Maigret and counted as processed checks.
 
 Compose accepts settings from the environment or a local `.env` file. Changing
 site limits, extraction behavior, timeouts, or connection counts can affect
-coverage and reliability; the original search defaults were preserved in this
-optimization.
+coverage and reliability. The fair queue changes admission and scheduling, while
+preserving search coverage, extraction, timeouts, and connection defaults.
 
 ## Validation and license
 
-[`docs/VALIDATION.md`](docs/VALIDATION.md) describes the validation performed
+[`docs/VALIDATION.md`](docs/VALIDATION.md) records the validation performed
 for 0.3.0. The test suite uses real Maigret code against local HTTP
 fixtures with synthetic profiles. `tests/verify_ui.py` uses Playwright as an
 external QA tool; it does not add scripts to the page.

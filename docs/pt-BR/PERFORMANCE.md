@@ -1,4 +1,4 @@
-# Deeper 0.3.0 — desempenho e armazenamento
+# Deeper 0.4.0 — desempenho e armazenamento
 
 [English](../PERFORMANCE.md) | **Português (Brasil)**
 
@@ -6,6 +6,43 @@ As medições históricas abaixo comparam as buscas e o armazenamento das versõ
 0.1.0 e 0.2.0. A medição de payloads incrementais da versão 0.3.0 aparece em
 seção separada; são dados sintéticos locais, não tempos de resposta de sites
 públicos.
+
+## Capacidade e memória na versão 0.4.0
+
+A fila justa da versão 0.4.0 controla a admissão e a ordem das buscas. Ela não
+acelera uma verificação individual do Maigret. Esta versão não apresenta nova
+medição de velocidade de busca ou de memória; as medições abaixo preservam suas
+versões e condições originais.
+
+| Configuração | Perfil padrão do serviço público | Perfil opcional com menor uso de memória |
+| --- | ---: | ---: |
+| Buscas simultâneas (`DEEPER_WORKERS`) | 2 | 1 |
+| Limite global de pendentes (`DEEPER_MAX_JOBS`) | 64 | 16 |
+| Pendentes por sessão (`DEEPER_MAX_JOBS_PER_SESSION`) | 2 | 2 |
+
+Tarefas pendentes estão na fila ou em execução. As concluídas não ocupam as
+duas vagas da sessão; tarefas concluídas mais antigas podem ser descartadas
+para admitir novo trabalho dentro do limite global de tarefas em memória. A
+próxima sessão pendente é a atendida há mais tempo, com ordem FIFO dentro de
+cada sessão. A posição pode mudar com a entrada de outras sessões, portanto não
+estima o tempo de espera. O contrato completo está em
+[Arquitetura](ARCHITECTURE.md).
+
+O host de implantação tem 2 vCPUs e aproximadamente 3,8 GiB de RAM, compartilhados
+com o sistema operacional, o proxy reverso e os demais serviços. O Compose
+limita o container Deeper a 512 MiB de RAM e 1 GiB de RAM e swap somados. O
+segundo limite não é 1 GiB adicional de swap; o Docker depende de suporte a swap
+no host para usar essa parcela. A implantação na VPS anterior à versão 0.4.0
+usava um worker de busca e limite de 16 tarefas. Esse é o perfil opcional acima,
+não o padrão 2/64/2 da fila justa. Verifique as variáveis efetivas após o deploy;
+um `.env` existente prevalece sobre os padrões do Compose.
+
+Duas buscas simultâneas podem usar mais memória que uma. O RSS histórico de um
+worker não demonstra o pico com dois: o processo HTTP, as tarefas na fila, os
+perfis em cache e o host também usam memória. Monitore memória e swap do
+container com carga representativa antes de aumentar os limites. As cotas
+compartilham capacidade entre navegadores anônimos; uma nova sessão pode
+contorná-las, portanto não são uma limitação robusta contra bots.
 
 ## Histórico: busca e armazenamento de 0.1.0 a 0.2.0
 
@@ -98,7 +135,7 @@ python scripts/benchmark.py --project /caminho/deeper-0.3.0 --output /caminho/pr
 
 Execute em sequência para evitar sobreposição entre cenários. O script valida as
 contagens e encerra todos os processos ao terminar. Para medir a imagem na VPS,
-use `docker image inspect deeper:0.3.0 --format '{{.Size}}'` e
+use `docker image inspect deeper:0.4.0 --format '{{.Size}}'` e
 `docker system df`. O Deeper não executa comandos de limpeza global.
 
 ## Como o armazenamento é controlado
@@ -118,4 +155,5 @@ espaço.
 
 Referências oficiais da configuração: [rotação json-file](https://docs.docker.com/engine/logging/drivers/json-file/),
 [montagens tmpfs](https://docs.docker.com/engine/storage/tmpfs/) e
-[cache de build](https://docs.docker.com/build/cache/).
+[cache de build](https://docs.docker.com/build/cache/). O Docker documenta o
+limite combinado de RAM e swap em [restrições de memória e swap](https://docs.docker.com/engine/containers/resource_constraints/#--memory-swap-details).

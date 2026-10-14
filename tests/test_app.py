@@ -22,7 +22,7 @@ def csrf(client):
     return page.select_one('input[name="csrf_token"]')['value']
 
 
-def test_initial_surface_is_just_title_and_native_search(app_bundle):
+def test_initial_surface_has_native_search_and_compact_source_navigation(app_bundle):
     app, _ = app_bundle
     response = app.test_client().get('/')
     page = BeautifulSoup(response.data, 'html.parser')
@@ -30,7 +30,8 @@ def test_initial_surface_is_just_title_and_native_search(app_bundle):
     assert page.select_one('form')['method'].lower() == 'post'
     assert page.select_one('input[type="search"]')['name'] == 'username'
     assert len(page.select('button[type="submit"]')) == 1
-    assert not page.select('nav, footer, script, .results')
+    assert len(page.select('nav[aria-label="Código-fonte"] a')) == 4
+    assert not page.select('footer, script, .results')
     policy = response.headers['Content-Security-Policy']
     assert "script-src 'self'" in policy
     assert "connect-src 'self'" in policy
@@ -117,7 +118,7 @@ def test_pending_results_load_only_the_same_origin_updates_script(app_bundle, mo
 
     assert response.status_code == 303
     assert not page.select('meta[http-equiv="refresh"]')
-    assert not page.select('img')
+    assert not page.select('main img')
     script = page.select_one('script[src]')
     assert script['src'] == '/static/search-progress.js'
     assert page.select('script') == [script]
@@ -180,7 +181,7 @@ def test_external_html_is_escaped_and_unsafe_links_are_removed():
             owner = session['owner']
         wait_for_job(manager, response.headers['Location'].rsplit('/', 1)[1], owner)
         page = BeautifulSoup(client.get(response.headers['Location']).data, 'html.parser')
-        assert not page.select('script, img')
+        assert not page.select('main script, main img')
         assert all(not anchor.get('href', '').startswith(('javascript:', 'data:')) for anchor in page.select('a'))
         assert '<script>evil()</script>' in page.get_text()
 
@@ -233,6 +234,7 @@ def test_updates_endpoint_returns_incremental_json_and_terminal_state(app_bundle
         'state': 'done', 'checked': 2, 'total': 2, 'unknown': 1,
         'elapsed': first.get_json()['elapsed'], 'cursor': 1,
         'reconcile': False,
+        'queue_position': 0,
         'profiles': [{
             'name': 'Example', 'url': 'https://example.com/synthetic',
             'tags': [], 'details': [], 'links': [], 'similar': False,

@@ -12,6 +12,12 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='deeper.css') }}">
 </head>
 <body>
+  <nav class="source-nav" aria-label="Código-fonte">
+    <a href="https://git.securityops.co/cristiancmoises/deeper" aria-label="Código-fonte no Forgejo em git.securityops.co" title="Forgejo · git.securityops.co"><img src="{{ url_for('static', filename='icons/forgejo.svg') }}" width="20" height="20" alt=""></a>
+    <a href="https://git.securityops.com.br/cristiancmoises/deeper" aria-label="Código-fonte no Forgejo em git.securityops.com.br" title="Forgejo · git.securityops.com.br"><img src="{{ url_for('static', filename='icons/forgejo.svg') }}" width="20" height="20" alt=""></a>
+    <a href="https://github.com/cristiancmoises/deeper" aria-label="Código-fonte no GitHub" title="GitHub"><img src="{{ url_for('static', filename='icons/github.svg') }}" width="20" height="20" alt=""></a>
+    <a href="https://codeberg.org/berkeley/deeper" aria-label="Código-fonte no Codeberg" title="Codeberg"><img src="{{ url_for('static', filename='icons/codeberg.svg') }}" width="20" height="20" alt=""></a>
+  </nav>
   <main class="workspace{% if job or error %} has-results{% endif %}">
     <div class="search-area">
       <h1><a class="wordmark" href="{{ url_for('home') }}" aria-label="Deeper, início">Deeper</a></h1>
@@ -28,6 +34,7 @@
     </div>
     {% if error %}<p id="search-error" class="message error" role="alert">{{ error }}</p>{% endif %}
     {% if job %}
+    {% set queue_position = job.queue_position if job.state == 'queued' and job.queue_position is integer and 0 < job.queue_position <= 9007199254740991 else none %}
     <section class="results" aria-label="Resultados da busca" aria-busy="{{ 'true' if job.state in ('queued', 'running') else 'false' }}"{% if job.state in ('queued', 'running') %} data-updates-url="{{ url_for('search_updates', token=request.view_args.token) }}" data-cursor="{{ job.cursor }}"{% endif %}>
       {% if job.cache_age is not none %}<p class="result-note">Resultados reutilizados desta sessão · obtidos há {{ job.cache_age }}s.</p>{% endif %}
       {% if job.state in ('queued', 'running') %}
@@ -35,6 +42,7 @@
         <span class="scanner" aria-hidden="true"></span>
         <div><h2><span data-search-state>{{ 'Aguardando para buscar' if job.state == 'queued' else 'Buscando' }}</span> <span>@{{ username }}</span></h2>
           <p data-progress-label>{% if job.total %}{{ job.checked }} de {{ job.total }} sites verificados{% else %}Preparando os sites{% endif %} <span class="separator">·</span> {{ job.elapsed }}s</p>
+          <p data-queue-position{% if queue_position is none %} hidden{% endif %}>{% if queue_position is not none %}Posição na fila: {{ queue_position }}.{% endif %}</p>
         </div>
         <a class="refresh-link" href="{{ url_for('results', token=request.view_args.token) }}">Atualizar</a>
       </div>
@@ -69,7 +77,7 @@
       {% if job.state == 'partial' and job.total > job.checked %}<p class="result-note">{{ job.total - job.checked }} sites não concluíram a verificação dentro do prazo.</p>{% endif %}
       {% if job.state in ('queued', 'running') %}<p class="message" data-terminal-message role="status" hidden></p><script src="{{ url_for('static', filename='search-progress.js') }}" defer></script>{% endif %}
     </section>
-    {% if job.state in ('queued', 'running') %}<p class="visually-hidden" data-update-status role="status" aria-live="polite" aria-atomic="true">A busca está em andamento.</p>{% endif %}
+    {% if job.state in ('queued', 'running') %}<p class="visually-hidden" data-update-status role="status" aria-live="polite" aria-atomic="true">{% if queue_position is not none %}Sua busca está na posição {{ queue_position }} da fila.{% else %}A busca está em andamento.{% endif %}</p>{% endif %}
     {% endif %}
   </main>
 </body>

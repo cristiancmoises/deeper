@@ -1,4 +1,4 @@
-# Deeper 0.3.0
+# Deeper 0.4.0
 
 [English](README.md) | **Português (Brasil)**
 
@@ -49,11 +49,19 @@ Abra <http://127.0.0.1:8080>. Acompanhe a inicialização com
 O repositório público do código está no
 [GitHub](https://github.com/cristiancmoises/deeper).
 
-Para uma VPS pequena, crie um arquivo `.env` local ao lado de `compose.yaml`:
+O perfil padrão do serviço público executa **duas buscas por vez**, aceita até
+**64 buscas pendentes** no total e permite **duas buscas pendentes por sessão
+do navegador**. Pendentes são as buscas na fila ou em execução. O container tem
+limite de 512 MiB de RAM e 1 GiB de RAM e swap somados; dimensione o host também
+para o proxy reverso, o sistema operacional e os demais serviços.
+
+Para um perfil com menor uso de memória e uma busca por vez, crie um arquivo
+`.env` local ao lado de `compose.yaml`:
 
 ```dotenv
 DEEPER_WORKERS=1
 DEEPER_MAX_JOBS=16
+DEEPER_MAX_JOBS_PER_SESSION=2
 ```
 
 Depois execute `docker compose up -d --build`. Para disponibilizar sua própria
@@ -62,41 +70,37 @@ e defina `DEEPER_SECURE_COOKIE=1` no `.env`. Mantenha o app em loopback quando o
 proxy estiver no mesmo host. Se o proxy exigir um bind fora do loopback, restrinja
 o acesso com firewall; não exponha a porta HTTP sem TLS diretamente à internet.
 
-## O que há na versão 0.3.0
+## O que há na versão 0.4.0
 
-- Novos perfis e o progresso dos sites aparecem durante a busca; cada resposta
-  leva somente os perfis após o cursor atual do navegador. Os limites de sites,
-  concorrência e prazos do motor de busca não mudaram.
-- Workers isolados de busca são reutilizados: a base do Maigret é carregada uma
-  vez por processo, com uma cópia independente dos sites para cada pesquisa.
-  Processos nascem sob demanda, são reciclados após 25 buscas e encerrados após
-  120 segundos ociosos.
-- Buscas concluídas com o mesmo usuário e sessão são reutilizadas por até
-  60 segundos. A página mostra a idade do resultado; erros e resultados parciais
-  não são reutilizados.
-- Resultados e cache ficam em memória. Tarefas expiradas são removidas
-  periodicamente, mesmo sem novas requisições.
-- O build Docker instala sem cache de downloads ou bytecode e leva apenas o
-  runtime instalado para a imagem final. Testes de dependências não usados,
-  traduções do `pycountry` e ferramentas de instalação são removidos; os dados
-  do motor e os arquivos de licença são preservados.
-- Os logs rotacionam em três arquivos de 2 MB. O filesystem do container é
-  somente leitura e `/tmp` usa tmpfs de 32 MB. As buscas não são persistidas em
-  volumes Docker.
+- Uma fila justa compartilha os workers entre sessões do navegador. Cada
+  worker disponível recebe uma busca da sessão pendente atendida há mais tempo,
+  preservando a ordem de envio dentro de cada sessão.
+- Cada sessão pode ter duas buscas na fila ou em execução por padrão. Repetir
+  uma busca ativa ou reutilizar um resultado recente não ocupa outra vaga. Uma
+  terceira busca pendente distinta recebe HTTP `429`; a fila global cheia
+  retorna HTTP `503`. As duas respostas incluem `Retry-After: 5`.
+- Os resultados pendentes mostram a posição atual na fila, atualizada conforme
+  buscas terminam e outras sessões entram. A posição indica a ordem atual, sem
+  prometer um horário de início.
+- Continuam disponíveis perfis incrementais, workers isolados reutilizáveis,
+  reutilização de resultados concluídos por 60 segundos e limpeza periódica em
+  memória. Cobertura, conexões e timeouts mantêm os padrões existentes.
+
+O agendamento, os limites das sessões e o formato das atualizações estão em
+[`docs/pt-BR/ARCHITECTURE.md`](docs/pt-BR/ARCHITECTURE.md).
 
 As medições e o método estão em
 [`docs/pt-BR/PERFORMANCE.md`](docs/pt-BR/PERFORMANCE.md). O tamanho da imagem Docker e o
 desempenho em plataformas externas precisam ser medidos no seu ambiente. Builds
 também usam armazenamento temporário e cache do Docker; um runtime menor não
 elimina esse custo. Consulte o uso local com `docker system df` e
-`docker image inspect deeper:0.3.0 --format '{{.Size}}'`. O Deeper não executa
+`docker image inspect deeper:0.4.0 --format '{{.Size}}'`. O Deeper não executa
 limpeza global do Docker ou da VPS.
 
 ## Instalação Python
 
-O Deeper é destinado ao Python **3.11 e 3.12**. Esta versão 0.3.0 foi validada
-com Python 3.12; o Python 3.11 não foi revalidado nesta release. Instale as
-dependências fixadas com hashes e execute a aplicação:
+O Deeper é destinado ao Python **3.11 e 3.12**. Instale as dependências fixadas
+com hashes e execute a aplicação:
 
 ```sh
 python3 -m venv .venv
@@ -138,16 +142,25 @@ mostra a idade do resultado; depois desse prazo, uma nova busca é iniciada. Use
 `DEEPER_CACHE_TTL=0` para desativar a reutilização após conclusão. Os resultados
 preservam a distinção entre CLAIMED, ausente e inconclusivo.
 
-As tarefas são privadas à sessão e expiram 15 minutos após a conclusão, com
-limpeza periódica em até cinco segundos. A fila e o uso de memória são limitados
-pela quantidade de tarefas; resultados concluídos mais antigos podem ser
-descartados para liberar capacidade. Workers aquecidos mantêm memória até serem
-encerrados por ociosidade ou reciclagem. Reiniciar limpa tarefas e cache; sem
-chave persistente, também invalida as sessões.
+Por padrão, no máximo duas buscas executam ao mesmo tempo; até 64 tarefas na
+fila ou em execução podem ser aceitas globalmente. Uma sessão do navegador pode
+ocupar duas dessas vagas. Quando um worker fica disponível, a sessão atendida
+há mais tempo é escolhida, preservando a ordem de envio dentro de cada sessão.
+A posição atual na fila pode mudar com a entrada de outras sessões. Os limites
+delimitam o trabalho; não oferecem buscas simultâneas ilimitadas nem garantem
+prazos de resposta dos sites públicos.
+
+As tarefas são privadas à sessão anônima do navegador e expiram 15 minutos após
+a conclusão, com limpeza periódica em até cinco segundos. Resultados concluídos
+mais antigos podem ser descartados para liberar capacidade. Workers aquecidos
+mantêm memória até serem encerrados por ociosidade ou reciclagem. Reiniciar limpa
+tarefas e cache; sem chave persistente, também invalida as sessões. As cotas por
+sessão compartilham a capacidade entre navegadores; não verificam identidade nem
+impedem de forma robusta bots que abrem novas sessões.
 
 Como as tarefas ficam em memória, execute uma **única instância HTTP**;
 `DEEPER_WORKERS` controla a concorrência das buscas. As sessões exigem cookies.
-Não há busca recursiva, API de IA, suporte a cookies autenticados de plataformas
+Não há busca recursiva, suporte a cookies autenticados de plataformas
 ou mecanismo de bypass. Verificações que exigem DNS/Tor/I2P sem configuração ou
 formato incompatível de nome de usuário podem ser ignoradas pelo Maigret e
 contadas como verificações processadas.
@@ -162,6 +175,7 @@ contadas como verificações processadas.
 | `DEEPER_CONNECTIONS` | `20` | Conexões por pesquisa. |
 | `DEEPER_WORKERS` | `2` | Pesquisas simultâneas. |
 | `DEEPER_MAX_JOBS` | `64` | Tarefas em memória, incluindo fila e cache. |
+| `DEEPER_MAX_JOBS_PER_SESSION` | `2` | Máximo de buscas na fila ou em execução por sessão do navegador. |
 | `DEEPER_RETENTION` | `900` | Segundos para manter uma tarefa concluída. |
 | `DEEPER_CACHE_TTL` | `60` | Reutiliza resultados na mesma sessão; `0` desativa. |
 | `DEEPER_WORKER_MAX_JOBS` | `25` | Recicla o processo após esse número de buscas. |
@@ -170,8 +184,9 @@ contadas como verificações processadas.
 | `DEEPER_SECURE_COOKIE` | `0` | Defina `1` quando servir exclusivamente por HTTPS. |
 
 O Compose aceita configurações do ambiente ou de um `.env` local. Alterar limite
-de sites, extração, timeouts ou conexões pode afetar cobertura e confiabilidade;
-os padrões originais de pesquisa foram preservados nesta otimização.
+de sites, extração, timeouts ou conexões pode afetar cobertura e confiabilidade.
+A fila justa altera a admissão e o agendamento, preservando os padrões de
+cobertura, extração, timeouts e conexões.
 
 ## Validação e licença
 

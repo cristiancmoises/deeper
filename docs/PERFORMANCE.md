@@ -1,10 +1,46 @@
-# Deeper 0.3.0 — performance and storage
+# Deeper 0.4.0 — performance and storage
 
 **English** | [Português (Brasil)](pt-BR/PERFORMANCE.md)
 
 Historical search and storage measurements below compare 0.1.0 with 0.2.0.
 The 0.3.0 progress-payload measurement is reported separately; it measures
 local synthetic traffic, not response time at public sites.
+
+## Capacity and memory in 0.4.0
+
+The fair queue in 0.4.0 controls admission and the order of searches. It does
+not increase the speed of an individual Maigret check. No new search-speed or
+memory benchmark is claimed for this release; the measurements below retain
+their original versions and conditions.
+
+| Setting | Default public-service profile | Optional lower-memory profile |
+| --- | ---: | ---: |
+| Concurrent searches (`DEEPER_WORKERS`) | 2 | 1 |
+| Global outstanding limit (`DEEPER_MAX_JOBS`) | 64 | 16 |
+| Outstanding per session (`DEEPER_MAX_JOBS_PER_SESSION`) | 2 | 2 |
+
+Outstanding jobs are queued or running. Completed jobs do not consume a
+session's two slots; older completed jobs can be evicted to admit new work within
+the global in-memory job budget. The next pending session is the one served
+least recently, with FIFO order within that session. Queue position can move
+when other sessions join, so it does not estimate waiting time. The full
+contract is in [Architecture](ARCHITECTURE.md).
+
+The deployment host has 2 vCPUs and approximately 3.8 GiB RAM, shared with the
+operating system, reverse proxy, and any other services. Compose limits the
+Deeper container to 512 MiB RAM and 1 GiB combined RAM and swap. The latter is
+not an additional 1 GiB of swap; Docker requires host swap support to use the
+swap allowance. The pre-0.4.0 VPS deployment used one search worker and a
+16-job budget. That is the optional memory profile above, not the 2/64/2 default
+for the fair queue. Check effective environment settings after a deployment;
+an existing `.env` overrides Compose defaults.
+
+Two simultaneous searches may use more memory than one. Historical single-worker
+RSS does not establish a two-worker peak: the HTTP process, queued jobs, cached
+profiles, and host overhead also use memory. Monitor container memory and swap
+under representative load before raising limits. Session quotas allocate
+capacity to anonymous browsers; opening a new session can evade them, so they
+are not robust bot rate limiting.
 
 ## Historical 0.1.0 to 0.2.0 search and storage
 
@@ -93,7 +129,7 @@ python scripts/benchmark.py --project /path/to/deeper-0.3.0 --output /path/to/pr
 
 Run sequentially to avoid overlap between scenarios. The script validates the
 counts and shuts down all processes when finished. To measure an image on your
-VPS, use `docker image inspect deeper:0.3.0 --format '{{.Size}}'` and
+VPS, use `docker image inspect deeper:0.4.0 --format '{{.Size}}'` and
 `docker system df`. Deeper does not run global cleanup commands.
 
 ## How storage is controlled
@@ -112,4 +148,5 @@ and build layers continue to count toward disk usage.
 
 Official configuration references: [json-file log rotation](https://docs.docker.com/engine/logging/drivers/json-file/),
 [tmpfs mounts](https://docs.docker.com/engine/storage/tmpfs/), and
-[build cache](https://docs.docker.com/build/cache/).
+[build cache](https://docs.docker.com/build/cache/). Docker documents the
+combined RAM-and-swap limit in [memory and swap constraints](https://docs.docker.com/engine/containers/resource_constraints/#--memory-swap-details).
