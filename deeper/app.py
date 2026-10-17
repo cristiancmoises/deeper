@@ -7,7 +7,13 @@ from importlib.metadata import PackageNotFoundError, version
 from flask import Flask, redirect, render_template, request, session, url_for
 
 from .config import Settings
-from .documents import FILE_TYPES, validate_file_type, validate_full_name
+from .documents import (
+    ENGINES,
+    FILE_TYPES,
+    validate_engine,
+    validate_file_type,
+    validate_full_name,
+)
 from .engine import safe_url, validate_username
 from .jobs import CapacityError, JobManager, SessionCapacityError
 
@@ -39,6 +45,7 @@ def create_app(
         code=200,
         mode="username",
         file_type="any",
+        engine="brave",
         consent=False,
     ):
         session.setdefault("owner", secrets.token_urlsafe(32))
@@ -51,6 +58,8 @@ def create_app(
             csrf_token=session["csrf_token"],
             mode=mode,
             file_type=file_type,
+            engine=engine,
+            engines=ENGINES,
             name_search_available=getattr(manager, "name_search_available", False),
             file_types=FILE_TYPES,
             consent=consent,
@@ -61,16 +70,23 @@ def create_app(
         mode = request.args.get("mode", "username")
         if mode not in ("username", "name"):
             return render(error="Escolha um modo de busca válido.", code=422)
-        return render(mode=mode)
+        engine = request.args.get("engine", "brave") if mode == "name" else "brave"
+        try:
+            engine = validate_engine(engine)
+        except ValueError as error:
+            return render(mode=mode, error=str(error), code=422)
+        return render(mode=mode, engine=engine)
 
     @app.post("/search")
     def search():
         mode = request.form.get("mode", "username")
         file_type = request.form.get("file_type", "any")
+        engine = request.form.get("engine", "brave")
         consent = request.form.get("consent", "") == "1"
         form = {
             "mode": mode if mode in ("username", "name") else "username",
             "file_type": file_type if file_type in FILE_TYPES else "any",
+            "engine": engine if engine in ENGINES else "brave",
             "consent": consent,
         }
         expected = session.get("csrf_token", "")
@@ -84,6 +100,8 @@ def create_app(
             if mode not in ("username", "name"):
                 raise ValueError("Escolha um modo de busca válido.")
             file_type = validate_file_type(file_type)
+            if mode == "name":
+                engine = validate_engine(engine)
             username = (
                 validate_full_name(value)
                 if mode == "name"
@@ -91,7 +109,7 @@ def create_app(
             )
             if mode == "name" and not consent:
                 raise ValueError(
-                    "Confirme o envio do nome ao Serper/Google para iniciar a busca."
+                    f"Confirme o envio do nome ao SecuritySearch/{ENGINES[engine]} para iniciar a busca."
                 )
         except ValueError as error:
             return render(username=value[:120], error=str(error), code=422, **form)
@@ -105,6 +123,14 @@ def create_app(
         try:
             if mode == "username" and file_type == "any":
                 token = manager.submit(username, session["owner"])
+            elif mode == "name":
+                token = manager.submit(
+                    username,
+                    session["owner"],
+                    mode=mode,
+                    file_type=file_type,
+                    engine=engine,
+                )
             else:
                 token = manager.submit(
                     username, session["owner"], mode=mode, file_type=file_type
@@ -141,6 +167,7 @@ def create_app(
             job=job,
             mode=job.get("mode", "username"),
             file_type=job.get("file_type", "any"),
+            engine=job.get("engine", "brave"),
             consent=job.get("mode") == "name",
         )
 

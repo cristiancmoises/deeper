@@ -3,31 +3,32 @@
 **English** | [Português (Brasil)](pt-BR/VALIDATION.md)
 
 Date: 17 October 2026. This release adds full-name/public-document references
-through Serper while preserving the Maigret 0.6.6 username mode. Automated
-provider fixtures and browser tests are separate from real-provider evidence.
-Real Serper qualification, production 0.5.0 qualification, and replacement
-screenshots remain **pending** until the selected provider key is configured.
+through keyless SecuritySearch (free Brave by default, optional free Google CSE),
+preserving Maigret 0.6.6 username mode. Local automated and browser checks passed,
+including bounded actual-provider observations and installed-wheel verification.
+Image and production qualification remain **pending**. No provider account or key is required.
 
-## Verified local qualification
+## Verified local checks and open release gates
 
 | Check | Evidence and scope |
 | --- | --- |
-| Full automated suite | 233 tests passed in 12.68 seconds; exit 0. |
-| Provider and application/job integration | The full suite includes controlled HTTP/provider payloads, query validation, response bounds, filtering, quota/errors, credential exclusion, consent, ownership, shared scheduling, and snapshots. These are not live Serper searches. |
-| Installed 0.5.0 wheel | Built wheel installed in a private virtual environment; verifier ran from outside the checkout and confirmed import from installed `site-packages/deeper`, package/health version 0.5.0, HTML/CSS, both progress scripts, all three source SVG icons, and name-mode filter/required-consent controls; exit 0. |
-| Real Maigret with local HTTP | Installed-wheel smoke completed three checks, with one inconclusive result and one synthetic profile found. Only loopback fixtures were queried. |
-| Browser QA | Legacy username and new document QA passed in real Chromium; exit 0. Document checks covered widths 320, 768, 1024, and 1440 with controlled results. Nine Unicode-boundary checks also passed. Browser fixtures do not establish real-provider coverage. |
-| Dependency advisories | `pip-audit` of the hash-locked dependencies checked 68 packages: zero known advisories, zero skipped packages; exit 0. This is a point-in-time advisory check, not proof of vulnerability absence. |
-| Compose configuration | Configuration validation and rendered-setting checks passed: shared 2/64/2 limits, 60-second cache, 900-second retention, empty example key, provider defaults, 512 MiB RAM / 1 GiB combined budget, and existing confinement; exit 0. Production image/deployment qualification remains pending. |
-| Real-provider smoke | Pending: bounded real full-name searches, including PDF, DOCX, non-ASCII names, legitimate empty results, errors, and filter behavior. |
-| Production qualification | Pending: exact release artifact/version, `/health`, name search, mixed-mode concurrency, memory budget, session isolation, and no OOM on the Deeper deployment. |
-| Public screenshots | Existing README images were captured for 0.4.0 username mode. Real 0.5.0 name/document captures have not replaced them. |
+| Full automated suite | 262 tests passed in 13.45 seconds; exit 0. Controlled provider/app/job/UI contracts do not establish external coverage. |
+| Static checks | Ruff, formatting, and Pyright passed on nine changed Python files; exit 0. |
+| Browser QA | Sandboxed Chromium passed at widths 320, 768, 1024, and 1440, with 200% text and Unicode boundaries. Sixteen native-form cases covered both engines with JavaScript enabled and disabled. Controlled fixtures verify behavior, not provider findings. |
+| Actual provider through local UI | Three bounded jobs through the real local application: Brave with quoted “GNU Guix”/PDF completed with 10 references; an accented full name with any file type completed with 10 references (private result contents not published); Google CSE with “GNU Guix”/PDF produced an honest unavailable error while retaining engine `google`. No paid fallback, automatic engine switch, page reload after initial result navigation, or browser errors were observed. |
+| Dependency advisories | Fresh `pip-audit` checked 68 locked packages: zero known advisories and zero skipped packages; exit 0. A point-in-time check, not proof of vulnerability absence. |
+| Compose and documentation | Parsing and rendered defaults passed: scheduling 2/64/2, cache 60 seconds, retention 900 seconds, provider 100/day and timeout 12 seconds, no provider key, private bind, read-only filesystem, dropped capabilities, PID limit 128, 512 MiB RAM / 1 GiB combined budget. TOML/version and local Markdown links passed. |
+| Installed replacement wheel | `deeper_maigret-0.5.0-py3-none-any.whl`, SHA-256 `b38f3ac1070511bdaa1c8309bd264684304a2a96ef123be81c71ea8298417c28`, passed verification outside the checkout from installed `site-packages` on Python 3.12.12 with Maigret 0.6.6. The database check found 10 sites; actual Maigret with synthetic local HTTP fixtures completed 3 checks, 1 inconclusive result, and 1 found profile. Health/version, HTML/CSP, installed assets, and native free-engine forms passed. These local fixtures are not public-site findings. |
+| Release image | Pending build and checks of the exact replacement image. Installed-wheel evidence does not qualify the container or deployment. |
+| Further real-provider coverage | Not established for DOCX, legitimate empty results, every filter/name, or sustained availability. The three observed jobs above are the actual integration evidence. |
+| Production qualification | Pending exact artifact/version, `/health`, name search, mixed-mode concurrency, memory budget, session isolation, and no OOM. The live link does not certify this release. |
+| Public screenshots | Actual 0.5.0 local UI in sandboxed Chromium: name/PDF/Brave form with consent unchecked, and ten real Brave “GNU Guix”/PDF index references. The form does not claim document findings for its entered name. Public results use a non-personal example; file types are inferred from URLs, with no document download or content/MIME verification. |
 
-The local checks above passed; real-provider and production release gates remain
-pending. Maigret tests use the real
-engine with local HTTP fixtures and synthetic profiles. Serper tests use
-controlled responses rather than credits or live accounts. Browser fixtures
-test UI behavior; their results must not be published as real provider findings.
+The prior Serper candidate's 233-test baseline and installed-wheel/browser checks
+are historical, not qualification for replacement artifacts or deployment.
+Maigret fixtures use the real engine with local HTTP and synthetic profiles.
+Only the actual-provider row and its public results screenshot represent external
+provider observations; fixture results must not be presented as real findings.
 
 ## Reproduction
 
@@ -47,13 +48,14 @@ Test the built wheel from a fresh environment outside the checkout with the
 hash-locked runtime dependencies. Confirm the installed version, Maigret
 database, `/health`, HTML/CSS, both progress scripts, source icons, and license
 files. A package health response checks package availability; it does not
-validate Serper credentials, credits, connectivity, or search coverage.
+validate SecuritySearch or engine connectivity or search coverage.
 
-Real-provider checks require a privately configured `SERPER_API_KEY` and a
-bounded call budget. Never print the credential or include it in test reports,
-screenshots, command arguments, or source control. A missing key must produce
-the unavailable state, never substitute fabricated references. Record actual
-provider outcomes separately from fixtures before claiming live success.
+Real-provider checks need a bounded call budget, not an account, API key, or paid
+API. Record the selected engine and actual outcomes separately from fixtures.
+Google CSE may rate-limit requests; HTTP 503 or bot protection must produce an
+honest unavailable state. Do not retry via a paid mechanism, switch engines
+automatically, reuse personal browser cookies, or solve CAPTCHA. HTTP 200 must
+also have the valid successful JSON shape before it can count as success.
 
 ## Limits of this evidence
 
@@ -63,14 +65,14 @@ provider outcomes separately from fixtures before claiming live success.
 - The provider timeout is a normal `urllib` HTTP timeout (12 seconds by default,
   configurable from 1 to 30), not the username process watchdog or a hard
   wall-clock bound. Responses are capped at 1 MiB with no automatic retries.
-- The 100-call UTC daily guard applies per process and resets on restart. It
-  cannot guarantee account-wide charges or control other clients. No credit
-  purchase or automatic top-up is performed.
+- The 100-call UTC daily guard and one-second call spacing protect shared
+  resources per process; the counter resets on restart. They are not billing
+  controls. The integration uses no paid API or automatic engine fallback.
 - Both modes share the 2-worker/64-global/2-session defaults, 60-second private
   cache, and 900-second completed-job retention. Run one HTTP application
   instance. Session limits are capacity controls, not robust bot identity checks.
 - Previous benchmarks in [PERFORMANCE.md](PERFORMANCE.md) are historical local
-  username measurements. They do not measure Serper latency, new-release image
+  username measurements. They do not measure SecuritySearch latency, new-release image
   size, production throughput, or public-site coverage.
 - Target support for Python 3.11/3.12 and documentation for Windows do not
   establish a fresh test on every OS/interpreter. Record actual release runs;

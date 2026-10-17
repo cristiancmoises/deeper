@@ -4,7 +4,7 @@
 
 Deeper runs one HTTP application with an in-memory job manager and a bounded
 executor shared by username and full-name jobs. Username searches use isolated
-Maigret processes; full-name searches make a bounded Serper HTTP request inside
+Maigret processes; full-name searches make a bounded SecuritySearch HTTP request inside
 the same executor slot. The HTTP application owns session
 privacy, admission, scheduling, progress, and temporary results. A worker loads
 the Maigret database once and uses an independent site copy for each username search.
@@ -12,9 +12,12 @@ the Maigret database once and uses an independent site copy for each username se
 ## Modes and provider boundary
 
 `GET /?mode=name` selects the server-rendered full-name form. `POST /search`
-retains the legacy `username` field and adds `mode` and `file_type`; omitted
+retains the legacy `username` field and adds `mode`, `file_type`, and `engine`; omitted
 fields preserve username behavior. Name mode requires `consent=1` before sending
-the name and file-type query to Serper/Google. Names are normalized to Unicode
+the name and file-type query to SecuritySearch and the selected engine. `engine`
+is allowlisted to `brave` (free Brave, default) or `google` (free Google CSE),
+validated before network I/O, and may be preselected with `?mode=name&engine=google`.
+The native selector also works without JavaScript. Names are normalized to Unicode
 NFC and collapsed spaces, must have at least two words and 2–120 characters,
 and admit only letters, combining marks, spaces, apostrophes, hyphens, and
 periods. Raw oversized inputs, quotes, controls, and query operators are rejected.
@@ -23,28 +26,37 @@ Names never generate guessed usernames.
 The file-type allowlist is `any`, `pdf`, `doc`, `docx`, `xls`, `xlsx`, `ppt`,
 `pptx`, `odt`, `ods`, `odp`, `rtf`, `txt`, and `csv`. The query quotes the entire
 name and appends only the selected allowlisted `filetype:` operator. Each
-uncached name job makes exactly one POST to the fixed
-`https://google.serper.dev/search` endpoint with `num=10`, `gl=br`, and `hl=pt-br`.
-There is no automatic retry, redirect following, scraping fallback, document
-download, preview, or result-URL fetch. A separate external Google link opens
-additional results outside the application.
+uncached name job makes exactly one GET to the fixed
+`https://securityops.co/api/v1/web` endpoint, with `s` holding the quoted query,
+`scraper` holding the selected engine, and `extendedsearch=no`.
+There is no provider account, API key, paid API, automatic retry, redirect
+following, engine fallback, document download, preview, or result-URL fetch.
+Brave uses the free search mechanism; `google` selects Google CSE, never the paid
+`google_api` mechanism. Google CSE may rate-limit requests. Results visibly name
+the actual engine. The optional external Google query link opens additional
+results outside the application; it does not label Brave results as Google.
 
-`SerperSearch.from_env()` privately loads `SERPER_API_KEY`. The key is excluded
-from settings snapshots, jobs, worker JSONL, browser responses, and logs.
+`SecuritySearch.from_env()` loads resource limits without reading a provider key.
 `DEEPER_NAME_DAILY_LIMIT` defaults to 100 calls per UTC day per application
 process, with at least one second between upstream calls. Restart resets the
-counter; it is a consumption guard, not an account-wide billing guarantee.
-There is no automatic credit purchase or top-up. `DEEPER_NAME_TIMEOUT` defaults
+counter; this protects shared resources rather than billing. No paid API is used.
+`DEEPER_NAME_TIMEOUT` defaults
 to 12 seconds and accepts finite values from 1 to 30. It is a normal `urllib`
 HTTP timeout, not a process-enforced wall-clock deadline. Responses are bounded
-to 1 MiB. Missing keys, exhausted quotas, network errors, and malformed payloads
-produce fixed public messages without upstream exception text or invented results.
+to 1 MiB. HTTP 200 alone is insufficient: JSON must be an object with `status=ok`
+and a `web` list. Only a bounded initial set of records is examined; `title`,
+`description`, and `url` pass through the metadata and URL validation below.
+Unavailable service/engines (including HTTP 401/403/503), exhausted quotas
+(including HTTP 429), network errors, and malformed payloads produce fixed public
+unavailable/quota/failure messages without upstream text or invented results.
+Bot protection must result in honest unavailability, never cookie reuse,
+CAPTCHA solving, or disabled protection.
 
 ## Reference contract and limits of evidence
 
 Name jobs return at most ten references, each with `id` (the canonical URL
 without its fragment), `title` (up to 300 characters), `url` (up to 2048),
-`snippet` (up to 1600), `source` (hostname), and `file_type` inferred from the URL
+`snippet` (up to 1600), `source` (hostname, up to 253), and `file_type` inferred from the URL
 or labeled unknown/HTML. Unsafe HTTP(S) reference URLs are rejected. Duplicate
 URLs collapse; equal titles or hosts do not. Known document extensions that
 disagree with the filter are removed, while unknown types remain unverified.
@@ -62,7 +74,7 @@ or running. `DEEPER_WORKERS`, `DEEPER_MAX_JOBS`, and
 `DEEPER_MAX_JOBS_PER_SESSION` configure those limits.
 
 A submission first reuses the same session's active job for the same mode,
-normalized value, and file type, or a
+normalized value, file type, and (for name mode) engine, or a
 successful result completed within the cache TTL. Reuse does not create another
 job and is checked before either quota. Errors and partial results are not
 reused. For a new job, the session limit is checked before global capacity.

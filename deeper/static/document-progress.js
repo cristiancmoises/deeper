@@ -9,6 +9,7 @@
   const fileTypes = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
     'odt', 'ods', 'odp', 'rtf', 'txt', 'csv', 'html', 'unknown']);
   const states = new Set(['queued', 'running', 'done', 'error']);
+  const engines = new Set(['brave', 'google']);
   let failures = 0;
   let inFlight = false;
   let stopped = false;
@@ -33,6 +34,7 @@
   function validSnapshot(data) {
     if (!data || typeof data !== 'object' || Array.isArray(data)
         || data.mode !== 'name' || !states.has(data.state)
+        || !engines.has(data.engine) || data.engine !== results.dataset.engine
         || !(data.file_type === 'any' || fileTypes.has(data.file_type)
           && !['html', 'unknown'].includes(data.file_type))
         || !Number.isSafeInteger(data.checked) || data.checked < 0 || data.checked > 1

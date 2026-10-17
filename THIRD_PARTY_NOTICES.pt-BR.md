@@ -11,6 +11,11 @@ projeto oficial Maigret.
   [PyPI](https://pypi.org/project/maigret/0.6.6/). Agradecemos ao Soxoj por
   disponibilizar o Maigret sob a licença MIT.
 - **Deeper 0.5.0**: MIT; consulte `LICENSE`.
+- **SecuritySearch**: agradecemos pelo serviço externo em
+  [securityops.co](https://securityops.co). O Deeper chama seu endpoint público
+  com Brave gratuito ou Google CSE gratuito opcional. O código do SecuritySearch
+  não está embutido no Deeper; a licença MIT do Deeper não licencia o serviço,
+  sua implementação ou os mecanismos externos.
 - Flask, Waitress e demais dependências mantêm seus próprios avisos nas
   distribuições. O arquivo de lock registra as versões utilizadas; este pacote
   não redistribui os binários dessas bibliotecas.

@@ -42,9 +42,12 @@
         <div class="name-options">
           <label class="file-type-label" for="file-type">Tipo de arquivo</label>
           <select id="file-type" name="file_type">{% for value, label in file_types.items() %}<option value="{{ value }}"{% if value == file_type %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          <label class="file-type-label engine-label" for="engine">Mecanismo de busca</label>
+          <select id="engine" name="engine" aria-describedby="engine-help">{% for value, label in engines.items() %}<option value="{{ value }}"{% if value == engine %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          <p id="engine-help" class="form-help">Brave é o padrão gratuito; Google CSE é opcional. A busca usa apenas o mecanismo selecionado, sem troca automática.</p>
           <p id="name-help" class="form-help">Use o nome completo, com pelo menos duas palavras. O servidor normaliza o nome antes de validar o limite de 120 caracteres. Até 10 referências do índice de busca; sem download de documentos.</p>
-          <label class="name-consent" for="name-consent"><input id="name-consent" type="checkbox" name="consent" value="1" required{% if consent %} checked{% endif %}><span>Concordo em enviar este nome e o filtro selecionado à Serper/Google para esta busca.</span></label>
-          {% if not name_search_available %}<p id="name-unavailable" class="form-help" data-name-unavailable role="status">Busca por nome indisponível no momento. A configuração do provedor é necessária.</p>{% endif %}
+          <label class="name-consent" for="name-consent"><input id="name-consent" type="checkbox" name="consent" value="1" required{% if consent %} checked{% endif %}><span>Concordo em enviar este nome e o filtro ao SecuritySearch pelo mecanismo selecionado acima (Brave ou Google CSE) para esta busca.</span></label>
+          {% if not name_search_available %}<p id="name-unavailable" class="form-help" data-name-unavailable role="status">Busca por nome indisponível no momento. Tente novamente mais tarde.</p>{% endif %}
         </div>
         {% endif %}
       </form>
@@ -53,12 +56,13 @@
     {% if job %}
     {% set queue_position = job.queue_position if job.state == 'queued' and job.queue_position is integer and 0 < job.queue_position <= 9007199254740991 else none %}
     {% if name_mode %}
-    <section class="results document-results" data-document-results aria-label="Referências públicas" aria-busy="{{ 'true' if job.state in ('queued', 'running') else 'false' }}"{% if job.state in ('queued', 'running') %} data-updates-url="{{ url_for('search_updates', token=request.view_args.token) }}"{% endif %}>
+    <section class="results document-results" data-document-results data-engine="{{ job.engine }}" aria-label="Referências públicas" aria-busy="{{ 'true' if job.state in ('queued', 'running') else 'false' }}"{% if job.state in ('queued', 'running') %} data-updates-url="{{ url_for('search_updates', token=request.view_args.token) }}"{% endif %}>
       {% if job.cache_age is not none %}<p class="result-note">Resultados reutilizados desta sessão · obtidos há {{ job.cache_age }}s.</p>{% endif %}
       <div class="search-status">
         <span class="scanner" data-document-scanner aria-hidden="true"{% if job.state not in ('queued', 'running') %} hidden{% endif %}></span>
         <div><h2><span data-document-state>{{ 'Aguardando para buscar' if job.state == 'queued' else 'Buscando referências' if job.state == 'running' else 'Busca não concluída' if job.state == 'error' else 'Busca concluída' }}</span> <span>{{ username }}</span></h2>
           <p data-document-progress-label>{{ job.checked }} de 1 solicitação ao provedor <span class="separator">·</span> {{ job.elapsed }}s</p>
+          <p data-document-engine>SecuritySearch · {{ engines[job.engine] }}</p>
           <p data-document-queue{% if queue_position is none %} hidden{% endif %}>{% if queue_position is not none %}Posição na fila: {{ queue_position }}.{% endif %}</p>
         </div>
         {% if job.state in ('queued', 'running') %}<a class="refresh-link" data-document-refresh href="{{ url_for('results', token=request.view_args.token) }}">Atualizar</a>{% endif %}
@@ -82,7 +86,7 @@
       </div>
       <div class="empty-state" data-document-empty{% if job.references or job.state != 'done' %} hidden{% endif %}><h3>Nenhuma referência encontrada</h3><p>Tente outro filtro ou confira o nome. A ausência no índice não prova a ausência de documentos públicos.</p></div>
       <p class="result-note" data-document-disclosure>Até 10 referências do índice de busca. Nomes iguais podem identificar pessoas diferentes. Os resultados não confirmam identidade nem o conteúdo exato dos documentos; o tipo de arquivo é inferido pela URL.</p>
-      {% if job.google_url | safe_url %}<p class="result-note"><a data-google-search href="{{ job.google_url }}" target="_blank" rel="noopener noreferrer">Ver mais resultados no Google (site externo)</a></p>{% endif %}
+      {% if job.google_url | safe_url %}<p class="result-note"><a data-google-search href="{{ job.google_url }}" target="_blank" rel="noopener noreferrer">Abrir consulta externa no Google (opcional)</a></p>{% endif %}
       {% if job.state in ('queued', 'running') %}<script src="{{ url_for('static', filename='document-progress.js') }}" defer></script>{% endif %}
     </section>
     <p class="visually-hidden" data-document-announcement role="status" aria-live="polite" aria-atomic="true">{% if queue_position is not none %}Sua busca está na posição {{ queue_position }} da fila.{% elif job.state == 'running' %}Buscando referências públicas.{% elif job.state == 'done' %}Busca concluída: {{ job.references | length }} referências.{% elif job.state == 'error' %}A busca não foi concluída.{% else %}Sua busca está aguardando para começar.{% endif %}</p>

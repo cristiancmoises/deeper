@@ -4,12 +4,13 @@
 
 Experimente a aplicação: **[deeper.securityops.co](https://deeper.securityops.co)**
 
-A integração Serper da 0.5.0 aguarda teste com o provedor real e qualificação
-em produção. O link não certifica que a produção já usa a 0.5.0.
+Consulte a versão em `/health` da aplicação implantada e o
+[`registro de validação`](docs/pt-BR/VALIDATION.md) para identificar a versão em produção.
 
 O Deeper é uma interface web independente com dois modos. **Nome de usuário**
 usa o **Maigret 0.6.6** para verificar perfis públicos. **Nome completo e
-documentos** usa **Serper/Google** para encontrar até **10 referências do índice
+documentos** usa **SecuritySearch**, com **Brave gratuito** por padrão ou
+**Google CSE gratuito** opcional por busca, para encontrar até **10 referências do índice
 de busca**, com um seletor para qualquer tipo, PDF, DOC, DOCX, XLS, XLSX, PPT,
 PPTX, ODT, ODS, ODP, RTF, TXT ou CSV. Nomes iguais não provam que os perfis pertencem
 à mesma pessoa; avalie cada resultado no contexto. Uma referência por nome não
@@ -28,31 +29,31 @@ a aplicação não tem banco de dados, histórico persistente nem relatórios em
 
 ## Capturas de tela
 
-Estas capturas são da **0.4.0** e mostram busca por usuário. As novas capturas
-0.5.0 por nome/documento com provedor real aguardam qualificação.
+Estas capturas da **0.5.0** mostram a aplicação local real em Chromium com sandbox.
 
-Tela inicial de pesquisa por usuário (0.4.0):
+Formulário por nome com “Cristian Cezar Moisés”, PDF e Brave selecionados e
+consentimento desmarcado. É uma demonstração do formulário, não achados de
+documentos sobre essa pessoa:
 
-![Tela inicial de pesquisa do Deeper](docs/images/deeper-search-start.png)
+![Formulário por nome do Deeper com PDF e Brave e consentimento desmarcado](docs/images/deeper-name-search.png)
 
-Pesquisa por usuário em andamento com resultados (0.4.0):
+Resultados reais Brave para o exemplo público não pessoal “GNU Guix”, entre
+aspas e com filtro PDF: dez referências do índice de busca. Os tipos são inferidos
+pelas URLs; os documentos não foram baixados e seu conteúdo ou MIME não foi verificado:
 
-![Progresso e resultados de uma busca no Deeper](docs/images/deeper-search-results.png)
-
-Os nomes de usuário e correspondências exibidos são exemplos, não uma
-confirmação de identidade.
+![Dez referências reais Brave do índice para o exemplo público GNU Guix com PDF](docs/images/deeper-document-results.png)
 
 ## Deploy rápido com Docker Compose
 
-Requisitos: Git, Docker Engine, plugin Docker Compose e chave da API Serper para
-busca por nome completo. A busca por usuário funciona sem essa chave. O padrão
+Requisitos: Git, Docker Engine e plugin Docker Compose. Os dois modos funcionam
+sem conta ou chave do provedor; nenhuma API paga é usada. O padrão
 usa `127.0.0.1:8080`, sem expor o serviço diretamente à internet pública.
 
 ```sh
 git clone https://github.com/cristiancmoises/deeper.git
 cd deeper
 cp .env.example .env
-# Edite .env e preencha SERPER_API_KEY com sua chave para busca por nome completo.
+# Opcional: edite .env para ajustar limites de recursos.
 docker compose up -d --build
 curl -fsS http://127.0.0.1:8080/health
 ```
@@ -64,7 +65,7 @@ Mantenha o `.env` privado; o Git o ignora. Os espelhos públicos do código est�
 [Codeberg](https://codeberg.org/berkeley/deeper),
 [Security Ops](https://git.securityops.co/cristiancmoises/deeper) e
 [Security Ops Brasil](https://git.securityops.com.br/cristiancmoises/deeper).
-Os links identificam repositórios; a publicação da 0.5.0 é uma etapa separada.
+Os links identificam os repositórios públicos do projeto.
 
 O perfil padrão do serviço público executa **duas buscas por vez**, aceita até
 **64 buscas pendentes** no total e permite **duas buscas pendentes por sessão
@@ -94,15 +95,20 @@ Selecione o modo de nome completo e informe pelo menos duas palavras, com 2 a
 marcas combinantes, espaços, apóstrofos, hífens e pontos; rejeita aspas e operadores
 de consulta. O nome inteiro fica entre aspas, e o tipo de arquivo permitido é o
 único operador acrescentado. É obrigatório consentir antes de compartilhar o nome
-e o filtro com Serper/Google. As políticas desses serviços se aplicam a esse
+e o filtro com SecuritySearch e o mecanismo selecionado. As políticas desses serviços se aplicam a esse
 processamento externo.
 
-Cada tarefa por nome sem cache faz **um POST** para
-`https://google.serper.dev/search`, com `num=10`, `gl=br` e `hl=pt-br`. Não há
-repetição automática nem alternativa por scraping. A resposta é limitada a 1 MiB.
+Cada tarefa por nome sem cache faz **um GET** para
+`https://securityops.co/api/v1/web`, com a consulta entre aspas em `s`,
+`scraper=brave` (padrão) ou `scraper=google` (Google CSE) e `extendedsearch=no`.
+Não exige conta ou chave, não usa API paga, repetição automática nem troca
+automática de mecanismo. O Google CSE pode limitar requisições; o Deeper informa
+indisponibilidade ou cota honestamente. Os resultados mostram o mecanismo real;
+resultados Brave nunca são rotulados como Google. A resposta é limitada a 1 MiB.
 O timeout HTTP padrão é de 12 segundos, configurável de 1 a 30: um timeout normal
-do `urllib`, não um prazo absoluto imposto por processo. O link externo do Google
-abre resultados adicionais fora do Deeper e do seu limite de resultados.
+do `urllib`, não um prazo absoluto imposto por processo. O link opcional de consulta
+externa no Google abre resultados adicionais fora do Deeper e do seu limite;
+ele não identifica o mecanismo das referências exibidas.
 
 Referências contêm identificador baseado na URL, título, URL, trecho, host de
 origem e tipo de arquivo inferido. Duplicatas são removidas por URL, não título
@@ -111,19 +117,18 @@ desconhecidos continuam identificados como não verificados. Extensão ou filtro
 não comprova MIME da resposta nem conteúdo do documento. Índices podem omitir,
 atrasar ou atribuir resultados incorretamente. Busca vazia não comprova ausência.
 
-A proteção de consumo permite **100 chamadas externas por dia UTC por processo
+A proteção de recursos permite **100 chamadas externas por dia UTC por processo
 da aplicação**, com pelo menos **um segundo entre chamadas**. Reiniciar zera o
-contador. Não é garantia de cobrança para toda a conta: outros clientes e
-reinícios podem consumir créditos separadamente. O Deeper não compra créditos
-nem ativa recargas automáticas. Sem chave configurada, a busca por nome fica
-indisponível. Limites esgotados, falhas de rede e respostas inválidas produzem
+contador. Essa proteção limita recursos compartilhados, não cobrança: a integração
+não usa API paga. O serviço e os mecanismos podem ficar indisponíveis.
+Limites esgotados, falhas de rede e respostas inválidas produzem
 erros públicos genéricos, nunca resultados inventados.
 
 ## Agendamento compartilhado na 0.5.0
 
 Os dois modos compartilham o mesmo executor limitado e vagas de execução. Uma
 requisição HTTP por nome não cria outro pool. A chave de cache inclui sessão,
-modo, valor normalizado e tipo de arquivo. O progresso por nome conta uma única
+modo, valor normalizado, tipo de arquivo e mecanismo selecionado. O progresso por nome conta uma única
 requisição ao provedor (0/1 ou 1/1), em vez dos sites verificados pelo Maigret.
 
 - Uma fila justa compartilha os workers entre sessões do navegador. Cada
@@ -174,10 +179,10 @@ Para definir host e porta:
 env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m deeper --host 0.0.0.0 --port 8080
 ```
 
-`/health` informa a disponibilidade dos pacotes; não verifica conta Serper,
-créditos, conectividade externa ou cobertura. O `.env` é lido pelo Compose, não
-automaticamente pelo Python: exporte as variáveis do provedor de forma privada
-antes de iniciar o Python diretamente para habilitar busca por nome.
+`/health` informa a disponibilidade dos pacotes; não verifica conectividade do
+SecuritySearch ou dos mecanismos nem cobertura. O `.env` é lido pelo Compose,
+não automaticamente pelo Python. O início direto por Python não exige chave do
+provedor; exporte os ajustes opcionais de recursos ao alterar seus padrões.
 Os comandos acima instalam o pacote a partir do checkout
 atual, após instalar as dependências de runtime fixadas.
 
@@ -226,7 +231,6 @@ contadas como verificações processadas.
 
 | Variável | Padrão | Efeito |
 | --- | --- | --- |
-| `SERPER_API_KEY` | vazia | Chave privada do provedor; necessária só para busca por nome. |
 | `DEEPER_NAME_DAILY_LIMIT` | `100` | Máximo positivo de chamadas por dia UTC por processo; zera no reinício. |
 | `DEEPER_NAME_TIMEOUT` | `12` | Timeout HTTP finito em segundos, de `1` a `30`. |
 | `DEEPER_TOP_SITES` | `500` | Limite de sites por usuário; `0` verifica todos os habilitados. |
@@ -251,9 +255,9 @@ cobertura, extração, timeouts e conexões.
 ## Validação e licença
 
 [`docs/pt-BR/VALIDATION.md`](docs/pt-BR/VALIDATION.md) descreve a validação da
-0.5.0 e distingue fixtures automatizadas dos testes reais de provedor e produção
-pendentes. A suíte usa Maigret real com HTTP local e respostas controladas do
-provedor; isso não é evidência de Serper real. Os scripts de QA usam Playwright
+0.5.0 e distingue fixtures automatizadas, observações reais do provedor e
+qualificação da versão/implantação. A suíte usa Maigret real com HTTP local e respostas controladas do
+provedor; isso não é evidência de SecuritySearch real. Os scripts de QA usam Playwright
 externamente, sem adicionar scripts à página.
 
 O Deeper é uma interface independente, não é o projeto oficial Maigret. O
@@ -261,6 +265,9 @@ backend é o **Maigret 0.6.6**, projeto sob licença MIT de **Soxoj**. Agradecem
 ao Soxoj por disponibilizar o projeto sob a licença MIT. Consulte
 [`THIRD_PARTY_NOTICES.pt-BR.md`](THIRD_PARTY_NOTICES.pt-BR.md), [`LICENSE`](LICENSE)
 e [`LICENSE-MAIGRET`](LICENSE-MAIGRET) para créditos e termos das licenças.
+Agradecemos ao [SecuritySearch](https://securityops.co) pelo serviço externo de
+busca. O Deeper chama seu endpoint público; o código do SecuritySearch não está
+embutido nem coberto pela licença MIT do Deeper.
 O próprio Deeper tem licença MIT. Os ícones dos links de código mantêm seus
 termos: Forgejo CC BY-SA 4.0, Codeberg CC0 e termos de uso do logo GitHub,
 documentados nos avisos de terceiros.

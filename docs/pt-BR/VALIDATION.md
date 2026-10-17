@@ -3,31 +3,33 @@
 [English](../VALIDATION.md) | **Português (Brasil)**
 
 Data: 17 de outubro de 2026. A versão acrescenta referências por nome completo
-e documento público via Serper, mantendo o modo por usuário com Maigret 0.6.6.
-Fixtures automatizadas do provedor e testes no navegador são separados da
-evidência real. A qualificação real do Serper, da 0.5.0 em produção e das novas
-capturas permanece **pendente** até configurar a chave do provedor escolhido.
+e documento público via SecuritySearch sem chave (Brave gratuito por padrão,
+Google CSE gratuito opcional), preservando o modo por usuário com Maigret 0.6.6.
+As verificações locais automatizadas e de navegador passaram, incluindo observações
+reais limitadas do provedor e verificação do wheel instalado. A qualificação da
+imagem e de produção permanece **pendente**. Não exige conta ou chave do provedor.
 
-## Qualificação local verificada
+## Verificações locais e etapas abertas da versão
 
 | Verificação | Evidência e escopo |
 | --- | --- |
-| Suíte automatizada completa | 233 testes passaram em 12,68 segundos; saída 0. |
-| Integração de provedor e aplicação/tarefas | A suíte completa inclui payloads HTTP/provedor controlados, validação de consulta, limites de resposta, filtros, cotas/erros, exclusão da credencial, consentimento, propriedade, agendamento compartilhado e snapshots. Não são buscas reais do Serper. |
-| Wheel 0.5.0 instalado | Wheel construído e instalado em ambiente virtual privado; verificador executado fora do checkout confirmou importação do `site-packages/deeper` instalado, versão 0.5.0 do pacote/health, HTML/CSS, os dois scripts de progresso, os três ícones SVG dos fontes e filtro/consentimento obrigatório no modo por nome; saída 0. |
-| Maigret real com HTTP local | O smoke do wheel instalado concluiu três verificações, com um resultado inconclusivo e um perfil sintético encontrado. Apenas fixtures em loopback foram consultadas. |
-| QA no navegador | QA legado por usuário e novo por documento passaram em Chromium real; saída 0. Os testes de documentos cobriram larguras 320, 768, 1024 e 1440 com resultados controlados. Nove verificações de limites Unicode também passaram. Fixtures de navegador não comprovam cobertura real do provedor. |
-| Avisos de dependências | `pip-audit` das dependências fixadas com hashes verificou 68 pacotes: zero vulnerabilidades conhecidas e zero pacotes ignorados; saída 0. É uma consulta pontual de avisos, não prova de ausência de vulnerabilidades. |
-| Configuração Compose | Validação de configuração e valores renderizados passou: limites compartilhados 2/64/2, cache de 60 segundos, retenção de 900 segundos, chave vazia no exemplo, padrões do provedor, 512 MiB de RAM / 1 GiB combinado e confinamento existente; saída 0. Qualificação da imagem/implantação em produção permanece pendente. |
-| Smoke do provedor real | Pendente: buscas reais limitadas por nome, incluindo PDF, DOCX, nomes não ASCII, vazios legítimos, erros e comportamento dos filtros. |
-| Qualificação em produção | Pendente: artefato/versão exatos, `/health`, busca por nome, concorrência entre modos, memória, isolamento de sessões e ausência de OOM na implantação Deeper. |
-| Capturas públicas | As imagens atuais dos READMEs são da busca por usuário na 0.4.0. As capturas reais 0.5.0 por nome/documento ainda não as substituíram. |
+| Suíte automatizada completa | 262 testes passaram em 13,45 segundos; saída 0. Contratos controlados de provedor/aplicação/tarefas/interface não comprovam cobertura externa. |
+| Verificações estáticas | Ruff, formatação e Pyright passaram nos nove arquivos Python alterados; saída 0. |
+| QA no navegador | Chromium com sandbox passou nas larguras 320, 768, 1024 e 1440, com texto a 200% e limites Unicode. Dezesseis casos de formulário nativo cobriram ambos os mecanismos com e sem JavaScript. Fixtures controladas verificam comportamento, não achados do provedor. |
+| Provedor real pela interface local | Três tarefas limitadas na aplicação local real: Brave com “GNU Guix” entre aspas/PDF concluiu com 10 referências; nome completo acentuado com qualquer tipo concluiu com 10 referências (conteúdos privados não publicados); Google CSE com “GNU Guix”/PDF gerou erro honesto de indisponibilidade, preservando mecanismo `google`. Não foram observados alternativa paga, troca automática de mecanismo, recarregamento após a navegação inicial ao resultado ou erros do navegador. |
+| Avisos de dependências | Novo `pip-audit` verificou 68 pacotes fixados: zero vulnerabilidades conhecidas e zero pacotes ignorados; saída 0. Verificação pontual, não prova de ausência de vulnerabilidades. |
+| Compose e documentação | Sintaxe e padrões renderizados passaram: agendamento 2/64/2, cache 60 segundos, retenção 900 segundos, provedor 100/dia e timeout 12 segundos, sem chave, bind privado, sistema somente leitura, capacidades removidas, limite de 128 PIDs, RAM 512 MiB / combinado 1 GiB. TOML/versão e links Markdown locais passaram. |
+| Wheel substituto instalado | `deeper_maigret-0.5.0-py3-none-any.whl`, SHA-256 `b38f3ac1070511bdaa1c8309bd264684304a2a96ef123be81c71ea8298417c28`, passou na verificação fora do checkout a partir de `site-packages` instalado, com Python 3.12.12 e Maigret 0.6.6. A verificação da base encontrou 10 sites; Maigret real com fixtures HTTP locais sintéticas concluiu 3 verificações, com 1 resultado inconclusivo e 1 perfil encontrado. Health/versão, HTML/CSP, assets instalados e formulários nativos dos mecanismos gratuitos passaram. Essas fixtures locais não são achados em sites públicos. |
+| Imagem da versão | Pendentes build e verificações da imagem substituta exata. A evidência do wheel instalado não qualifica o container ou a implantação. |
+| Cobertura real adicional | Não estabelecida para DOCX, vazios legítimos, todos os filtros/nomes ou disponibilidade sustentada. As três tarefas acima são a evidência real da integração. |
+| Qualificação em produção | Pendentes artefato/versão exatos, `/health`, nome, concorrência entre modos, memória, isolamento e ausência de OOM. O link público não certifica esta versão. |
+| Capturas públicas | Interface local real 0.5.0 em Chromium com sandbox: formulário nome/PDF/Brave com consentimento desmarcado e dez referências reais Brave para “GNU Guix”/PDF. O formulário não afirma achados de documentos para o nome preenchido. O exemplo público não é pessoal; tipos são inferidos pelas URLs, sem download ou verificação de conteúdo/MIME. |
 
-As verificações locais acima passaram; as etapas de provedor real e produção
-permanecem pendentes. Testes Maigret usam o motor real com
-HTTP local e perfis sintéticos. Testes Serper usam respostas controladas, não
-créditos ou contas reais. Fixtures no navegador verificam a interface; seus
-resultados não devem ser publicados como achados reais do provedor.
+O baseline de 233 testes e as verificações de wheel instalado/navegador do
+candidato Serper anterior são históricos; não qualificam os artefatos substitutos
+ou a implantação. Fixtures Maigret usam o motor real com HTTP local e perfis
+sintéticos. Apenas a linha de provedor real e sua captura pública representam
+observações externas; resultados de fixtures não devem ser publicados como achados reais.
 
 ## Reprodução
 
@@ -46,14 +48,15 @@ docker compose config --quiet
 Teste o wheel em ambiente novo fora do checkout com dependências de runtime
 fixadas por hashes. Confirme versão instalada, base Maigret, `/health`, HTML/CSS,
 os dois scripts de progresso, ícones dos fontes e arquivos de licença. O health
-verifica disponibilidade dos pacotes; não valida credenciais, créditos,
-conectividade ou cobertura do Serper.
+verifica disponibilidade dos pacotes; não valida conectividade do SecuritySearch
+ou dos mecanismos nem cobertura.
 
-Testes reais exigem `SERPER_API_KEY` configurada de forma privada e orçamento
-limitado de chamadas. Nunca imprima a credencial nem a inclua em relatórios,
-capturas, argumentos de comandos ou Git. Chave ausente deve produzir estado
-indisponível, nunca referências inventadas. Registre os resultados reais
-separados das fixtures antes de declarar sucesso com o provedor.
+Testes reais precisam de orçamento limitado de chamadas, sem conta, chave ou API
+paga. Registre mecanismo escolhido e resultados reais separados das fixtures.
+O Google CSE pode limitar requisições; HTTP 503 ou proteção contra bots deve gerar
+indisponibilidade honesta. Não tente mecanismo pago, troca automática de mecanismo,
+reúso de cookies pessoais ou resolução de CAPTCHA. HTTP 200 também precisa do
+formato JSON válido de sucesso antes de ser registrado como sucesso.
 
 ## Limites desta evidência
 
@@ -63,14 +66,14 @@ separados das fixtures antes de declarar sucesso com o provedor.
 - O timeout do provedor é HTTP normal do `urllib` (12 segundos por padrão,
   configurável de 1 a 30), não o watchdog do processo por usuário nem um prazo
   absoluto. Respostas têm limite de 1 MiB, sem repetição automática.
-- A proteção de 100 chamadas por dia UTC é por processo e zera no reinício. Não
-  garante a cobrança de toda a conta nem controla outros clientes. Não há compra
-  de créditos ou recarga automática.
+- A proteção de 100 chamadas por dia UTC e o intervalo de um segundo protegem
+  recursos compartilhados por processo; o contador zera no reinício. Não são
+  controles de cobrança. A integração não usa API paga nem troca automática de mecanismo.
 - Os modos compartilham padrões de 2 workers/64 globais/2 por sessão, cache
   privado de 60 segundos e retenção de concluídas de 900 segundos. Execute uma
   instância HTTP. Limites por sessão controlam capacidade, não identidade de bots.
 - Benchmarks anteriores em [PERFORMANCE.md](PERFORMANCE.md) são medições locais
-  históricas por usuário. Não medem latência Serper, tamanho da imagem nova,
+  históricas por usuário. Não medem latência SecuritySearch, tamanho da imagem nova,
   vazão em produção ou cobertura de sites públicos.
 - Suporte previsto a Python 3.11/3.12 e documentação Windows não comprovam teste
   recente em todo sistema/interpretador. Registre as execuções reais; testes de

@@ -27,7 +27,7 @@ class FormControls(HTMLParser):
         self.elements: list[tuple[str, dict[str, str | None]]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in {"input", "select"}:
+        if tag in {"input", "select", "option"}:
             self.elements.append((tag, dict(attrs)))
 
 
@@ -109,6 +109,20 @@ def main():
             controls = FormControls()
             controls.feed(response.read().decode())
             assert any(
+                tag == "select" and attrs.get("name") == "engine"
+                for tag, attrs in controls.elements
+            )
+            assert any(
+                tag == "option"
+                and attrs.get("value") == "brave"
+                and "selected" in attrs
+                for tag, attrs in controls.elements
+            )
+            assert any(
+                tag == "option" and attrs.get("value") == "google"
+                for tag, attrs in controls.elements
+            )
+            assert any(
                 tag == "select" and attrs.get("name") == "file_type"
                 for tag, attrs in controls.elements
             )
@@ -156,6 +170,7 @@ def main():
         "health_html_css": "pass",
         "home_page_no_javascript": True,
         "name_mode_filter_consent": "pass",
+        "name_engine_brave_default_google_optional": "pass",
         "installed_assets": assets,
     }
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

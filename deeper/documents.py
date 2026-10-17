@@ -27,10 +27,11 @@ FILE_TYPES = {
     "txt": "Texto (.txt)",
     "csv": "CSV",
 }
-_ENDPOINT = "https://google.serper.dev/search"
+ENGINES = {"brave": "Brave", "google": "Google CSE"}
+_ENDPOINT = "https://securityops.co/api/v1/web"
 _MAX_BYTES = 1024 * 1024
 _ERRORS = {
-    "unavailable": "A busca por nome está indisponível: o provedor não está configurado.",
+    "unavailable": "A busca por nome está indisponível no provedor. Tente novamente mais tarde.",
     "quota": "O limite de buscas por nome ou a cota do provedor foi atingido. Tente novamente mais tarde.",
     "failed": "Não foi possível concluir a consulta ao provedor de busca. Tente novamente mais tarde.",
 }
@@ -71,6 +72,12 @@ def validate_full_name(value: object) -> str:
 def validate_file_type(value: object) -> str:
     if not isinstance(value, str) or value not in FILE_TYPES:
         raise ValueError("Selecione um tipo de arquivo válido.")
+    return value
+
+
+def validate_engine(value: object) -> str:
+    if not isinstance(value, str) or value not in ENGINES:
+        raise ValueError("Selecione um mecanismo de busca válido.")
     return value
 
 
@@ -158,24 +165,25 @@ def _references(payload, file_type):
     if (
         not isinstance(payload, dict)
         or "error" in payload
-        or not isinstance(payload.get("organic"), list)
+        or payload.get("status") != "ok"
+        or not isinstance(payload.get("web"), list)
     ):
         raise DocumentSearchError("failed")
     references, seen = [], set()
-    for item in payload["organic"][:10]:
-        if not isinstance(item, dict) or not isinstance(item.get("link"), str):
+    for item in payload["web"][:10]:
+        if not isinstance(item, dict) or not isinstance(item.get("url"), str):
             raise DocumentSearchError("failed")
-        title, snippet = item.get("title", ""), item.get("snippet", "")
+        title, snippet = item.get("title", ""), item.get("description", "")
         if not isinstance(title, str) or not isinstance(snippet, str):
             raise DocumentSearchError("failed")
         try:
             # JSON permits escaped lone surrogates. Reject them before clipping
             # metadata or deriving the public URL, id and source hostname.
-            for value in (title, snippet, item["link"]):
+            for value in (title, snippet, item["url"]):
                 value.encode("utf-8")
         except UnicodeEncodeError:
             raise DocumentSearchError("failed") from None
-        url = _reference_url(item["link"])
+        url = _reference_url(item["url"])
         if not url or url in seen:
             continue
         parts = urlsplit(url)
@@ -210,12 +218,10 @@ def _reject_constant(value):
     raise ValueError("Non-finite JSON number")
 
 
-class SerperSearch:
+class SecuritySearch:
     """Only search-index metadata is retrieved; reference URLs are never fetched."""
 
-    def __init__(
-        self, api_key="", *, opener=None, daily_limit=100, timeout: float = 12
-    ):
+    def __init__(self, *, opener=None, daily_limit=100, timeout: float = 12):
         if (
             not isinstance(daily_limit, int)
             or isinstance(daily_limit, bool)
@@ -229,9 +235,6 @@ class SerperSearch:
             or not 1 <= timeout <= 30
         ):
             raise ValueError("DEEPER_NAME_TIMEOUT must be finite and between 1 and 30")
-        self._api_key = api_key.strip() if isinstance(api_key, str) else ""
-        if any(ord(char) < 33 or ord(char) > 126 for char in self._api_key):
-            self._api_key = ""
         self._opener = opener if opener is not None else build_opener(_NoRedirect())
         self._daily_limit = daily_limit
         self._timeout = timeout
@@ -246,37 +249,31 @@ class SerperSearch:
                 "Invalid name-search limit or timeout configuration"
             ) from None
         return cls(
-            os.environ.get("SERPER_API_KEY", ""),
             daily_limit=daily_limit,
             timeout=timeout,
         )
 
     @property
     def available(self):
-        return bool(self._api_key)
+        return True
 
-    def _request(self, query):
+    def _request(self, query, engine):
         deadline = time.monotonic() + self._timeout
+        request_url = (
+            _ENDPOINT
+            + "?"
+            + urlencode({"s": query, "scraper": engine, "extendedsearch": "no"})
+        )
         request = Request(
-            _ENDPOINT,
-            data=json.dumps(
-                {
-                    "q": query,
-                    "num": 10,
-                    "gl": "br",
-                    "hl": "pt-br",
-                }
-            ).encode("utf-8"),
-            headers={
-                "X-API-KEY": self._api_key,
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            method="POST",
+            request_url,
+            headers={"Accept": "application/json"},
+            method="GET",
         )
         try:
             with self._opener.open(request, timeout=self._timeout) as response:
-                if response.status != 200 or response.geturl() != _ENDPOINT:
+                if response.status != 200:
+                    raise DocumentSearchError(self._http_error_code(response.status))
+                if response.geturl() != request_url:
                     raise DocumentSearchError("failed")
                 body = bytearray()
                 while len(body) <= _MAX_BYTES:
@@ -291,9 +288,7 @@ class SerperSearch:
                         break
                     body.extend(chunk)
         except HTTPError as error:
-            raise DocumentSearchError(
-                "quota" if error.code in (402, 429) else "failed"
-            ) from None
+            raise DocumentSearchError(self._http_error_code(error.code)) from None
         except (URLError, OSError, ValueError, HTTPException):
             raise DocumentSearchError("failed") from None
         if len(body) > _MAX_BYTES:
@@ -303,7 +298,16 @@ class SerperSearch:
         except (ValueError, UnicodeError, RecursionError):
             raise DocumentSearchError("failed") from None
 
-    def search(self, name, file_type="any", emit=None):
+    @staticmethod
+    def _http_error_code(status):
+        if status == 429:
+            return "quota"
+        if status in (401, 403, 503):
+            return "unavailable"
+        return "failed"
+
+    def search(self, name, file_type="any", emit=None, *, engine="brave"):
+        engine = validate_engine(engine)
         query = build_query(name, file_type)
         initial = {
             "state": "running",
@@ -316,9 +320,9 @@ class SerperSearch:
             emit(initial)
         report = {**initial, "state": "done", "checked": 1}
         try:
-            if not self.available:
-                raise DocumentSearchError("unavailable")
-            payload = _budget.run(self._daily_limit, lambda: self._request(query))
+            payload = _budget.run(
+                self._daily_limit, lambda: self._request(query, engine)
+            )
             report["references"] = _references(payload, file_type)
         except DocumentSearchError as error:
             report.update(

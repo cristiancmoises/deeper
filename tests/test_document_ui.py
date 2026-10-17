@@ -30,6 +30,7 @@ FILE_TYPES = {
         "csv",
     )
 }
+ENGINES = {"brave": "Brave", "google": "Google CSE"}
 
 
 def render_name(*, available=True, job=None, **changes):
@@ -44,6 +45,8 @@ def render_name(*, available=True, job=None, **changes):
         "consent": False,
         "name_search_available": available,
         "file_types": FILE_TYPES,
+        "engine": "brave",
+        "engines": ENGINES,
         "csrf_token": "fixture",
         "error": None,
         "job": job,
@@ -62,6 +65,7 @@ def name_job(**changes):
         "username": "Ana Maria",
         "mode": "name",
         "file_type": "pdf",
+        "engine": "brave",
         "state": "queued",
         "query": '"Ana Maria" filetype:pdf',
         "google_url": "https://www.google.com/search?q=%22Ana+Maria%22+filetype%3Apdf",
@@ -102,8 +106,48 @@ def test_name_form_submits_mode_filter_and_explicit_required_consent():
     assert page.select_one('option[value="pdf"][selected]')
     checkbox = page.select_one('input[name="consent"][value="1"][required]')
     assert checkbox and not checkbox.has_attr("checked")
-    assert "Serper/Google" in element(page, 'label[for="name-consent"]').get_text()
+    consent = element(page, 'label[for="name-consent"]').get_text()
+    assert "SecuritySearch" in consent and "mecanismo selecionado" in consent
+    assert "Brave" in consent and "Google CSE" in consent
     assert len(page.select('nav[aria-label="Código-fonte"] a')) == 4
+
+
+@pytest.mark.parametrize("engine", ["brave", "google"])
+def test_name_engine_native_selection_preserves_the_selected_mechanism(engine):
+    # A lost selected option would send a different mechanism on a native resubmit.
+    page = render_name(engine=engine)
+    options = page.select('select[name="engine"] option')
+    assert [option["value"] for option in options] == ["brave", "google"]
+    assert element(page, 'select[name="engine"] option[selected]')["value"] == engine
+    assert (
+        element(page, 'label[for="engine"]').get_text(strip=True)
+        == "Mecanismo de busca"
+    )
+
+
+def test_name_engine_defaults_to_brave_and_username_has_no_engine_control():
+    assert (
+        element(render_name(), 'select[name="engine"] option[selected]')["value"]
+        == "brave"
+    )
+    assert not render_name(mode="username").select('select[name="engine"]')
+
+
+@pytest.mark.parametrize("engine,label", list(ENGINES.items()))
+def test_job_labels_its_actual_engine_and_google_link_is_a_separate_query(
+    engine, label
+):
+    # The submitted form's choice must never relabel an existing job's provider.
+    page = render_name(
+        engine="google" if engine == "brave" else "brave", job=name_job(engine=engine)
+    )
+    assert (
+        element(page, "[data-document-engine]").get_text(strip=True)
+        == f"SecuritySearch · {label}"
+    )
+    google = element(page, "[data-google-search]").get_text()
+    assert "consulta" in google.lower() and "externa" in google.lower()
+    assert "mais resultados" not in google.lower()
 
 
 def test_name_unavailable_explains_why_submit_is_disabled():

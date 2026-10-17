@@ -25,8 +25,8 @@ class DocumentSearch:
         self.calls = []
         self.references = references if references is not None else [REFERENCE]
 
-    def search(self, name, file_type, emit):
-        self.calls.append((name, file_type))
+    def search(self, name, file_type, emit, *, engine="brave"):
+        self.calls.append((name, file_type, engine))
         return {
             "state": "done",
             "checked": 1,
@@ -52,6 +52,7 @@ def test_name_reports_full_private_bounded_references_and_zero_profile_cursor():
         job = wait_for_job(manager, token, "owner")
         assert job["username"] == "Maria Silva"
         assert job["mode"] == "name" and job["file_type"] == "pdf"
+        assert job["engine"] == "brave"
         assert job["query"] == '"Maria Silva" filetype:pdf'
         assert job["google_url"].startswith("https://www.google.com/search?")
         assert job["checked"] == job["total"] == 1
@@ -60,6 +61,7 @@ def test_name_reports_full_private_bounded_references_and_zero_profile_cursor():
         updates = manager.updates(token, "owner", 0)
         assert updates is not None
         assert updates["references"] == job["references"]
+        assert updates["engine"] == "brave"
         updates["references"].clear()
         refreshed = manager.updates(token, "owner", 0)
         assert refreshed is not None
@@ -87,15 +89,51 @@ def test_name_cache_separates_filter_owner_and_mode_without_calling_username_run
         wait_for_job(manager, other, "other")
         assert len({first, filtered, other}) == 3
         assert search.calls == [
-            ("Maria Silva", "pdf"),
-            ("Maria Silva", "doc"),
-            ("Maria Silva", "pdf"),
+            ("Maria Silva", "pdf", "brave"),
+            ("Maria Silva", "doc", "brave"),
+            ("Maria Silva", "pdf", "brave"),
         ]
         old = manager.submit("synthetic", "owner")
         old_job = wait_for_job(manager, old, "owner")
         old_updates = manager.updates(old, "owner", 0)
         assert old_updates is not None
         assert old_job["profiles"] and "references" not in old_updates
+        assert "engine" not in old_job and "engine" not in old_updates
+
+
+def test_name_cache_and_inflight_identity_separate_engines():
+    release = threading.Event()
+
+    class BlockingSearch(DocumentSearch):
+        def search(self, name, file_type, emit, *, engine="brave"):
+            assert release.wait(3)
+            return super().search(name, file_type, emit, engine=engine)
+
+    search = BlockingSearch()
+    with JobManager(Settings(), document_search=search) as manager:
+        try:
+            brave = manager.submit("Maria Silva", "owner", mode="name")
+            google = manager.submit(
+                "Maria Silva", "owner", mode="name", engine="google"
+            )
+            assert brave != google
+            assert (
+                manager.submit("Maria Silva", "owner", mode="name", engine="google")
+                == google
+            )
+        finally:
+            release.set()
+        assert wait_for_job(manager, brave, "owner")["engine"] == "brave"
+        assert wait_for_job(manager, google, "owner")["engine"] == "google"
+        assert manager.submit("Maria Silva", "owner", mode="name") == brave
+        assert (
+            manager.submit("Maria Silva", "owner", mode="name", engine="google")
+            == google
+        )
+        assert sorted(search.calls) == [
+            ("Maria Silva", "any", "brave"),
+            ("Maria Silva", "any", "google"),
+        ]
 
 
 @pytest.mark.parametrize(
@@ -104,6 +142,7 @@ def test_name_cache_separates_filter_owner_and_mode_without_calling_username_run
         {"mode": "other"},
         {"file_type": "pdf OR txt"},
         {"mode": "name", "file_type": "exe"},
+        {"mode": "name", "engine": "google_api"},
     ],
 )
 def test_manager_rejects_untrusted_mode_and_filetype_before_work(kwargs):
@@ -134,9 +173,9 @@ def test_name_and_username_share_slots_session_limit_and_fair_order():
         return complete_runner(username, settings, emit)
 
     class BlockingSearch(DocumentSearch):
-        def search(self, name, file_type, emit):
+        def search(self, name, file_type, emit, *, engine="brave"):
             run(name)
-            return super().search(name, file_type, emit)
+            return super().search(name, file_type, emit, engine=engine)
 
     with JobManager(
         Settings(workers=2), runner=runner, document_search=BlockingSearch()
@@ -170,7 +209,7 @@ def test_name_and_username_share_slots_session_limit_and_fair_order():
 
 def test_name_failures_do_not_expose_provider_exception_or_report_text():
     class FailingSearch(DocumentSearch):
-        def search(self, name, file_type, emit):
+        def search(self, name, file_type, emit, *, engine="brave"):
             raise RuntimeError("private provider secret")
 
     with JobManager(Settings(), document_search=FailingSearch()) as manager:
@@ -185,9 +224,9 @@ def test_name_and_username_share_global_job_capacity():
     release = threading.Event()
 
     class BlockingSearch(DocumentSearch):
-        def search(self, name, file_type, emit):
+        def search(self, name, file_type, emit, *, engine="brave"):
             assert release.wait(3)
-            return super().search(name, file_type, emit)
+            return super().search(name, file_type, emit, engine=engine)
 
     with JobManager(
         Settings(workers=1, max_jobs=2),
@@ -208,7 +247,7 @@ def test_name_and_username_share_global_job_capacity():
 )
 def test_provider_error_codes_are_mapped_to_fixed_public_messages(error_code):
     class ReportFailure(DocumentSearch):
-        def search(self, name, file_type, emit):
+        def search(self, name, file_type, emit, *, engine="brave"):
             return {
                 "state": "error",
                 "checked": 1,

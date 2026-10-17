@@ -4,12 +4,13 @@
 
 Try the live application: **[deeper.securityops.co](https://deeper.securityops.co)**
 
-The 0.5.0 Serper integration awaits a real-provider smoke test and production
-qualification. The live link does not certify that production already runs 0.5.0.
+Check the deployed application's `/health` version and
+[`validation record`](docs/VALIDATION.md) for the currently deployed release.
 
 Deeper is an independent web interface with two modes. **Username** uses
 **Maigret 0.6.6** to check public profile pages. **Full name and documents**
-uses **Serper/Google** to find up to **10 search-index references**, with one
+uses **SecuritySearch**, with free **Brave** by default or optional free
+**Google CSE** selected per search, to find up to **10 search-index references**, with one
 selector for any result type, PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, ODT, ODS, ODP,
 RTF, TXT, or CSV.
 Matching usernames do not prove that profiles belong to the same person; review
@@ -28,23 +29,23 @@ search history, or on-disk reports.
 
 ## Screenshots
 
-These screenshots were captured for **0.4.0** and show username search.
-New real-provider 0.5.0 name/document captures are pending qualification.
+These **0.5.0** screenshots show the real local application in sandboxed Chromium.
 
-The initial username search screen (0.4.0):
+Full-name form with “Cristian Cezar Moisés”, PDF and Brave selected, and consent
+unchecked. This is a form demonstration, not document findings about that person:
 
-![Deeper initial search screen](docs/images/deeper-search-start.png)
+![Deeper full-name form with PDF and Brave selected and consent unchecked](docs/images/deeper-name-search.png)
 
-A username search in progress with results (0.4.0):
+Real Brave results for the quoted public, non-personal example “GNU Guix” with
+the PDF filter: ten search-index references. File types are inferred from URLs;
+documents were not downloaded and their content or MIME type was not verified:
 
-![Deeper search progress and results](docs/images/deeper-search-results.png)
-
-The displayed usernames and matches are examples, not identity verification.
+![Ten real Brave search-index references for the public GNU Guix PDF example](docs/images/deeper-document-results.png)
 
 ## Quick deployment with Docker Compose
 
-Requirements: Git, Docker Engine, the Docker Compose plugin, and a Serper API key
-for full-name search. Username search works without that key. The default
+Requirements: Git, Docker Engine, and the Docker Compose plugin. Both search
+modes work without a provider account or API key; no paid API is used. The default
 configuration binds to `127.0.0.1:8080`, so the service is not exposed directly
 to the public internet.
 
@@ -52,7 +53,7 @@ to the public internet.
 git clone https://github.com/cristiancmoises/deeper.git
 cd deeper
 cp .env.example .env
-# Edit .env and set SERPER_API_KEY to your own key for full-name search.
+# Optional: edit .env to adjust resource limits.
 docker compose up -d --build
 curl -fsS http://127.0.0.1:8080/health
 ```
@@ -64,7 +65,7 @@ Keep `.env` private; Git ignores it. Public source mirrors are on
 [Codeberg](https://codeberg.org/berkeley/deeper),
 [Security Ops](https://git.securityops.co/cristiancmoises/deeper), and
 [Security Ops Brasil](https://git.securityops.com.br/cristiancmoises/deeper).
-The links identify repositories; 0.5.0 publication is a separate release gate.
+The links identify the project's public source repositories.
 
 The default public-service profile runs **two searches at once**, accepts up to
 **64 outstanding searches** across sessions, and allows **two outstanding
@@ -94,15 +95,21 @@ Deeper normalizes Unicode to NFC and whitespace. Letters, combining marks,
 spaces, apostrophes, hyphens, and periods are supported; quotes and query
 operators are rejected. The entire name is quoted, and the allowlisted file type
 is the only appended search operator. Explicit consent is required before
-sharing the name and file-type query with Serper/Google. Their service policies
+sharing the name and file-type query with SecuritySearch and the selected engine.
+Their service policies
 apply to this external processing.
 
-Each uncached name job makes **one POST** to `https://google.serper.dev/search`,
-with `num=10`, `gl=br`, and `hl=pt-br`. There are no automatic retries or scraping
-fallback. Responses are bounded to 1 MiB. The default HTTP timeout is 12 seconds,
+Each uncached name job makes **one GET** to `https://securityops.co/api/v1/web`,
+with the quoted query in `s`, `scraper=brave` (default) or `scraper=google`
+(Google CSE), and `extendedsearch=no`. No account, key, paid API, automatic
+retry, or engine fallback is used. Google CSE may rate-limit requests; Deeper
+reports unavailable or quota errors honestly. Results show the actual selected
+engine; Brave results are never labeled Google. Responses are bounded to 1 MiB.
+The default HTTP timeout is 12 seconds,
 configurable from 1 to 30 seconds: a normal `urllib` HTTP timeout, not a
-process-enforced wall-clock deadline. The external Google link opens additional
-results outside Deeper and its result limit.
+process-enforced wall-clock deadline. The optional external Google query link
+opens additional results outside Deeper and its result limit; it does not identify
+the engine that supplied the displayed references.
 
 References contain a URL-based identifier, title, URL, snippet, source hostname,
 and inferred file type. They are deduplicated by URL, not title or host. Known
@@ -111,19 +118,18 @@ types remain labeled unverified. Neither extension nor search filter proves a
 response's MIME type or document contents. Indexes can omit, delay, or misattribute
 results. An empty search does not prove absence.
 
-The default consumption guard allows **100 upstream calls per UTC day per
+The default resource guard allows **100 upstream calls per UTC day per
 application process**, with at least **one second between calls**. Restarting
-resets this counter. It is not an account-wide billing guarantee: other clients
-and restarts can consume credits independently. Deeper never purchases credits
-or enables automatic top-ups. Without a configured key, full-name search is
-unavailable. Exhausted limits, network failures, and invalid provider responses
+resets this counter. This protects shared resources, not billing: the integration
+uses no paid API. The service and either engine can become unavailable.
+Exhausted limits, network failures, and invalid provider responses
 produce generic public errors, never fabricated results.
 
 ## Shared scheduling in 0.5.0
 
 Both modes share the same bounded executor and worker slots. A name HTTP request
 does not create a separate worker pool. Cache identity includes session, mode,
-normalized value, and file type. Name progress counts a single provider request
+normalized value, file type, and selected engine. Name progress counts a single provider request
 (0/1 or 1/1), rather than Maigret sites checked.
 
 - A fair queue shares search workers across browser sessions. Each available
@@ -174,10 +180,10 @@ To select a host and port:
 env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m deeper --host 0.0.0.0 --port 8080
 ```
 
-`/health` reports package availability; it does not check the Serper account,
-credits, upstream connectivity, or search coverage. A `.env` file is read by
-Compose, not automatically by Python: privately export the provider variables
-before direct Python startup to enable full-name search.
+`/health` reports package availability; it does not check SecuritySearch or engine
+connectivity or search coverage. A `.env` file is read by Compose, not automatically
+by Python. Direct Python startup needs no provider key; export optional resource
+settings explicitly when changing their defaults.
 The commands above install the package from the
 current checkout after installing its locked runtime dependencies.
 
@@ -223,7 +229,6 @@ username format may be skipped by Maigret and counted as processed checks.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `SERPER_API_KEY` | empty | Private provider key; required only for name search. |
 | `DEEPER_NAME_DAILY_LIMIT` | `100` | Positive maximum upstream calls per UTC day per process; resets on restart. |
 | `DEEPER_NAME_TIMEOUT` | `12` | Finite HTTP timeout in seconds, from `1` to `30`. |
 | `DEEPER_TOP_SITES` | `500` | Username site limit; `0` checks every enabled site. |
@@ -248,9 +253,9 @@ preserving search coverage, extraction, timeouts, and connection defaults.
 ## Validation and license
 
 [`docs/VALIDATION.md`](docs/VALIDATION.md) records the validation performed
-for 0.5.0, distinguishing automated fixtures from pending live-provider and
-production checks. The test suite uses real Maigret code against local HTTP
-fixtures and controlled provider payloads; those are not live Serper evidence.
+for 0.5.0, distinguishing automated fixtures, actual provider observations, and
+release/deployment qualification. The test suite uses real Maigret code against local HTTP
+fixtures and controlled provider payloads; those are not live SecuritySearch evidence.
 The browser QA scripts use Playwright externally, without adding scripts to the page.
 
 Deeper is an independent interface and is not the official Maigret project.
@@ -258,6 +263,9 @@ The backend is **Maigret 0.6.6**, an MIT-licensed project by **Soxoj**. Thank
 you to Soxoj for making the project available under the MIT license. See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), [`LICENSE`](LICENSE), and
 [`LICENSE-MAIGRET`](LICENSE-MAIGRET) for attribution and license terms.
+Thank you to [SecuritySearch](https://securityops.co) for the external search
+service. Deeper calls its public endpoint; SecuritySearch code is not embedded
+or covered by Deeper's MIT license.
 Deeper itself is MIT-licensed. Source-link icons retain their own terms:
 Forgejo CC BY-SA 4.0, Codeberg CC0, and GitHub's logo usage terms, documented
 in the third-party notices.

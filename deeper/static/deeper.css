@@ -22,6 +22,7 @@ select:focus-visible, input[type="checkbox"]:focus-visible { outline: 2px solid 
 .search-modes a[aria-current="page"] { color: var(--cyan); border-bottom-color: var(--cyan); }
 .name-options { margin-top: 1.25rem; }
 .file-type-label { display: block; margin-bottom: .5rem; font-size: .875rem; }
+.engine-label { margin-top: 1rem; }
 .name-options select { width: 100%; min-height: 2.75rem; padding: .6rem .75rem; background: var(--black); color: var(--cyan-soft); border: 1px solid var(--line); border-radius: .5rem; font: inherit; }
 .form-help, .name-consent { font-size: .875rem; line-height: 1.6; color: var(--cyan-muted); }
 .form-help { margin: .75rem 0; }

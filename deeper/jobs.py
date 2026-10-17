@@ -10,9 +10,10 @@ from copy import deepcopy
 from .config import Settings
 from .documents import (
     DocumentSearchError,
-    SerperSearch,
+    SecuritySearch,
     build_query,
     google_search_url,
+    validate_engine,
     validate_file_type,
     validate_full_name,
 )
@@ -44,7 +45,9 @@ class JobManager:
         )
         self._runner = runner or self._run_process
         self._document_search = (
-            document_search if document_search is not None else SerperSearch.from_env()
+            document_search
+            if document_search is not None
+            else SecuritySearch.from_env()
         )
         self._stop = threading.Event()
         self._maintenance_thread = threading.Thread(
@@ -72,11 +75,19 @@ class JobManager:
         return self._document_search.available
 
     def submit(
-        self, username: str, owner: str, *, mode="username", file_type="any"
+        self,
+        username: str,
+        owner: str,
+        *,
+        mode="username",
+        file_type="any",
+        engine="brave",
     ) -> str:
         if mode not in ("username", "name"):
             raise ValueError("Escolha um modo de busca válido.")
         file_type = validate_file_type(file_type)
+        if mode == "name":
+            engine = validate_engine(engine)
         username = (
             validate_full_name(username)
             if mode == "name"
@@ -92,6 +103,7 @@ class JobManager:
                     and job["username"] == username
                     and job["mode"] == mode
                     and job["file_type"] == file_type
+                    and (mode != "name" or job["engine"] == engine)
                     and job["state"] in ("queued", "running")
                 ):
                     return token
@@ -100,6 +112,7 @@ class JobManager:
                     and job["username"] == username
                     and job["mode"] == mode
                     and job["file_type"] == file_type
+                    and (mode != "name" or job["engine"] == engine)
                     and job["state"] == "done"
                     and self.settings.cache_ttl
                     and time.monotonic() - job["finished"] < self.settings.cache_ttl
@@ -143,6 +156,7 @@ class JobManager:
             }
             if mode == "name":
                 self._jobs[token].update(
+                    engine=engine,
                     query=build_query(username, file_type),
                     google_url=google_search_url(username, file_type),
                     references=[],
@@ -236,6 +250,7 @@ class JobManager:
             if job["mode"] == "name":
                 updates.update(
                     mode="name",
+                    engine=job["engine"],
                     file_type=job["file_type"],
                     references=deepcopy(job["references"]),
                 )
@@ -303,6 +318,7 @@ class JobManager:
             owner = job["owner"]
             mode = job["mode"]
             file_type = job["file_type"]
+            engine = job.get("engine", "brave")
         state = "error"
         try:
 
@@ -310,7 +326,9 @@ class JobManager:
                 self._update(token, event)
 
             if mode == "name":
-                report = self._document_search.search(username, file_type, emit)
+                report = self._document_search.search(
+                    username, file_type, emit, engine=engine
+                )
             else:
                 report = self._runner(username, self.settings, emit)
             self._update(token, report)

@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from flask import render_template, request
 from playwright.sync_api import expect, sync_playwright
-from test_document_ui import FILE_TYPES, name_job
+from test_document_ui import ENGINES, FILE_TYPES, name_job
 from waitress.server import TcpWSGIServer, create_server
 
 from deeper.app import create_app
@@ -58,6 +58,8 @@ def fixture_app():
             file_type="pdf",
             consent=False,
             file_types=FILE_TYPES,
+            engine="brave",
+            engines=ENGINES,
             name_search_available=case != "unavailable",
             job=job,
             csrf_token="fixture",
@@ -105,13 +107,14 @@ def verify_unicode_boundaries(browser, base):
                 # Exercise the actual upstream sanitizer before the browser boundary.
                 sanitized = _references(
                     {
-                        "organic": [
+                        "status": "ok",
+                        "web": [
                             {
-                                "link": reference["url"],
+                                "url": reference["url"],
                                 "title": reference["title"],
-                                "snippet": reference["snippet"],
+                                "description": reference["snippet"],
                             }
-                        ]
+                        ],
                     },
                     "pdf",
                 )
@@ -186,8 +189,8 @@ def verify_native_search(browser):
         ("normalized-121-rejected", "A" * 60 + " " + "B" * 60, None),
     ]
     evidence = []
-    for javascript, (case, raw_name, normalized_name) in product(
-        (True, False), name_cases
+    for javascript, engine, (case, raw_name, normalized_name) in product(
+        (True, False), ENGINES, name_cases
     ):
         release, completed = threading.Event(), threading.Event()
         calls = []
@@ -200,8 +203,8 @@ def verify_native_search(browser):
                 self.completed = completed
                 self.calls = calls
 
-            def search(self, name, file_type, emit):
-                self.calls.append((name, file_type))
+            def search(self, name, file_type, emit, *, engine="brave"):
+                self.calls.append((name, file_type, engine))
                 assert self.release.wait(10)
                 self.completed.set()
                 return {"state": "done", "checked": 1, "references": [REFERENCE]}
@@ -236,6 +239,12 @@ def verify_native_search(browser):
                 page.goto(base)
                 page.get_by_role("link", name="Nome completo", exact=True).click()
                 assert page.url == base + "/?mode=name"
+                expect(page.get_by_label("Mecanismo de busca")).to_have_value("brave")
+                if engine == "google":
+                    page.goto(base + "/?mode=name&engine=google")
+                expect(page.get_by_label("Mecanismo de busca")).to_have_value(engine)
+                page.get_by_label("Mecanismo de busca").select_option("brave")
+                page.get_by_label("Mecanismo de busca").select_option(engine)
                 searchbox = page.get_by_role("searchbox", name="Nome completo")
                 searchbox.focus()
                 # Native insertion exercises the browser's maxlength enforcement.
@@ -256,11 +265,15 @@ def verify_native_search(browser):
                 if normalized_name is None:
                     assert post.value.status == 422
                     expect(page.locator("#search-error")).to_contain_text("120")
+                    expect(page.get_by_label("Mecanismo de busca")).to_have_value(
+                        engine
+                    )
                     assert calls == [] and len(posts) == 1
                     evidence.append(
                         {
                             "case": case,
                             "javascript": javascript,
+                            "engine": engine,
                             "status": 422,
                             "provider_calls": 0,
                         }
@@ -270,12 +283,16 @@ def verify_native_search(browser):
                 expect(page.locator("[data-document-state]")).to_have_text(
                     "Buscando referências"
                 )
+                expect(page.locator("[data-document-engine]")).to_have_text(
+                    f"SecuritySearch · {ENGINES[engine]}"
+                )
+                expect(page.get_by_label("Mecanismo de busca")).to_have_value(engine)
                 release.set()
                 assert completed.wait(3)
                 if not javascript:
                     page.get_by_role("link", name="Atualizar", exact=True).click()
                 expect(page.locator("[data-document-reference]")).to_have_count(1)
-                assert calls == [(normalized_name, "pdf")]
+                assert calls == [(normalized_name, "pdf", engine)]
                 assert len(posts) == 1
                 expect(page.locator("[data-document-progress-label]")).to_contain_text(
                     "1 de 1 solicitação"
@@ -284,6 +301,7 @@ def verify_native_search(browser):
                     {
                         "case": case,
                         "javascript": javascript,
+                        "engine": engine,
                         "status": 303,
                         "provider_calls": 1,
                     }
@@ -294,6 +312,63 @@ def verify_native_search(browser):
                 server.close()
                 thread.join(timeout=3)
     return evidence
+
+
+def verify_rejected_engine(browser):
+    """A tampered paid engine must fail in the actual app before any search."""
+
+    class NeverSearch:
+        available = True
+
+        def search(self, *args, **kwargs):
+            raise AssertionError("An invalid engine reached the search provider")
+
+    with JobManager(
+        Settings(secret_key="synthetic-rejected-engine"), document_search=NeverSearch()
+    ) as manager:
+        server = cast(
+            TcpWSGIServer,
+            create_server(
+                create_app(manager.settings, manager),
+                host="127.0.0.1",
+                port=0,
+                threads=4,
+            ),
+        )
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        assert server.socket is not None
+        base = f"http://127.0.0.1:{server.socket.getsockname()[1]}"
+        context = browser.new_context()
+        try:
+            page = context.new_page()
+            page.goto(base + "/?mode=name")
+            csrf = page.locator('input[name="csrf_token"]').input_value()
+            response = context.request.post(
+                base + "/search",
+                form={
+                    "csrf_token": csrf,
+                    "mode": "name",
+                    "username": "Ana Maria",
+                    "file_type": "pdf",
+                    "consent": "1",
+                    "engine": "google_api",
+                },
+            )
+            assert response.status == 422
+            response = context.request.get(base + "/?mode=name&engine=google_api")
+            assert response.status == 422
+            assert manager._jobs == {}
+        finally:
+            context.close()
+            server.close()
+            thread.join(timeout=3)
+    return {
+        "engine": "google_api",
+        "get_status": 422,
+        "post_status": 422,
+        "jobs_created": 0,
+    }
 
 
 def verify(browser, base, output):
@@ -370,6 +445,8 @@ def verify(browser, base, output):
         page.keyboard.press("Tab")
         expect(page.get_by_label("Tipo de arquivo")).to_be_focused()
         page.keyboard.press("Tab")
+        expect(page.get_by_label("Mecanismo de busca")).to_be_focused()
+        page.keyboard.press("Tab")
         expect(page.get_by_role("checkbox")).to_be_focused()
         assert page.get_by_role("checkbox").evaluate(
             "element => !element.checkValidity()"
@@ -417,7 +494,15 @@ def verify(browser, base, output):
         expect(page.locator(selector)).to_be_visible()
         page.close()
 
-    for case in ("malformed", "unsafe", "oversized", "404", "network"):
+    for case in (
+        "malformed",
+        "unsafe",
+        "oversized",
+        "paid-engine",
+        "changed-engine",
+        "404",
+        "network",
+    ):
         context = browser.new_context()
         page = context.new_page()
         calls = []
@@ -446,6 +531,15 @@ def verify(browser, base, output):
             elif case == "oversized":
                 route.fulfill(
                     json=payload(state="done", checked=1, references=[REFERENCE] * 11)
+                )
+            elif case in ("paid-engine", "changed-engine"):
+                route.fulfill(
+                    json=payload(
+                        state="done",
+                        checked=1,
+                        references=[REFERENCE],
+                        engine="google_api" if case == "paid-engine" else "google",
+                    )
                 )
             else:
                 route.fulfill(
@@ -494,7 +588,7 @@ def main():
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
-                executable_path=args.browser, headless=True
+                executable_path=args.browser, headless=True, chromium_sandbox=True
             )
             evidence = {
                 "source": "synthetic fixtures; not live provider evidence",
@@ -504,6 +598,7 @@ def main():
             if not args.unicode_only:
                 evidence["views"] = verify(browser, base, output)
                 evidence["native_name_boundaries"] = verify_native_search(browser)
+                evidence["invalid_paid_engine"] = verify_rejected_engine(browser)
                 evidence["native_form_js_and_no_js"] = True
             (output / "documents-verification.json").write_text(
                 json.dumps(evidence, indent=2)

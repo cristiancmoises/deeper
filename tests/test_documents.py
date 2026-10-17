@@ -84,9 +84,10 @@ def test_query_is_literal_and_file_type_is_allowlisted():
 
 class Response(io.BytesIO):
     status = 200
+    request_url: str
 
     def geturl(self):
-        return "https://google.serper.dev/search"
+        return self.request_url
 
 
 class Boundary:
@@ -99,7 +100,9 @@ class Boundary:
         self.calls.append((request, timeout))
         if self.error:
             raise self.error
-        return Response(self.raw)
+        response = Response(self.raw)
+        response.request_url = request.full_url
+        return response
 
 
 @pytest.fixture
@@ -123,27 +126,31 @@ def clock(monkeypatch):
     return values
 
 
-def test_provider_uses_one_fixed_post_and_reports_normalized_url_identity(clock):
+@pytest.mark.parametrize("engine", ["brave", "google"])
+def test_provider_uses_one_fixed_keyless_get_and_reports_normalized_url_identity(
+    clock, engine
+):
     boundary = Boundary(
         {
-            "organic": [
+            "status": "ok",
+            "web": [
                 {
                     "title": "Same",
-                    "link": "https://EXAMPLE.org/report.PDF#page=2",
-                    "snippet": "Public",
+                    "url": "https://EXAMPLE.org/report.PDF#page=2",
+                    "description": "Public",
                 },
-                {"title": "duplicate", "link": "https://example.org/report.PDF#page=7"},
-                {"title": "Same", "link": "https://example.org/another.pdf"},
-                {"title": "Same", "link": "https://other.example/info"},
-                {"title": "Mismatch", "link": "https://example.org/file.docx"},
-            ]
+                {"title": "duplicate", "url": "https://example.org/report.PDF#page=7"},
+                {"title": "Same", "url": "https://example.org/another.pdf"},
+                {"title": "Same", "url": "https://other.example/info"},
+                {"title": "Mismatch", "url": "https://example.org/file.docx"},
+            ],
         }
     )
     events = []
     report = (
         module()
-        .SerperSearch("test-only-key", opener=boundary)
-        .search("José Silva", "pdf", events.append)
+        .SecuritySearch(opener=boundary)
+        .search("José Silva", "pdf", events.append, engine=engine)
     )
     assert report == {
         "state": "done",
@@ -187,15 +194,20 @@ def test_provider_uses_one_fixed_post_and_reports_normalized_url_identity(clock)
     assert events[-1] == report
     assert len(boundary.calls) == 1
     request, timeout = boundary.calls[0]
-    assert request.full_url == "https://google.serper.dev/search"
-    assert request.method == "POST"
-    assert json.loads(request.data) == {
-        "q": '"José Silva" filetype:pdf',
-        "num": 10,
-        "gl": "br",
-        "hl": "pt-br",
+    parts = urlsplit(request.full_url)
+    assert (parts.scheme, parts.netloc, parts.path) == (
+        "https",
+        "securityops.co",
+        "/api/v1/web",
+    )
+    assert request.method == "GET"
+    assert request.data is None
+    assert parse_qs(parts.query) == {
+        "s": ['"José Silva" filetype:pdf'],
+        "scraper": [engine],
+        "extendedsearch": ["no"],
     }
-    assert request.get_header("X-api-key") == "test-only-key"
+    assert dict(request.header_items()) == {"Accept": "application/json"}
     assert timeout == 12
 
 
@@ -213,12 +225,8 @@ def test_provider_uses_one_fixed_post_and_reports_normalized_url_identity(clock)
     ],
 )
 def test_unsafe_reference_is_rejected_without_fetching_it(clock, url):
-    boundary = Boundary({"organic": [{"title": "Bad", "link": url}]})
-    report = (
-        module()
-        .SerperSearch("test-only-key", opener=boundary)
-        .search("Ana Silva", "any")
-    )
+    boundary = Boundary({"status": "ok", "web": [{"title": "Bad", "url": url}]})
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva", "any")
     assert report["state"] == "done"
     assert report["references"] == []
     assert len(boundary.calls) == 1
@@ -230,13 +238,14 @@ def test_oversized_canonical_hostname_is_skipped_without_discarding_valid_result
 ):
     boundary = Boundary(
         {
-            "organic": [
-                {"title": "Malformed host", "link": f"https://{host}/report.pdf"},
-                {"title": "Public report", "link": "https://example.org/report.pdf"},
-            ]
+            "status": "ok",
+            "web": [
+                {"title": "Malformed host", "url": f"https://{host}/report.pdf"},
+                {"title": "Public report", "url": "https://example.org/report.pdf"},
+            ],
         }
     )
-    report = module().SerperSearch("test-only-key", opener=boundary).search("Ana Silva")
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva")
     assert report["state"] == "done"
     assert [reference["url"] for reference in report["references"]] == [
         "https://example.org/report.pdf"
@@ -245,8 +254,10 @@ def test_oversized_canonical_hostname_is_skipped_without_discarding_valid_result
 
 def test_253_character_hostname_remains_available_without_truncation(clock):
     host = ".".join(["a" * 63, "b" * 63, "c" * 63, "d" * 61])
-    boundary = Boundary({"organic": [{"link": f"https://{host}/report.pdf"}]})
-    report = module().SerperSearch("test-only-key", opener=boundary).search("Ana Silva")
+    boundary = Boundary(
+        {"status": "ok", "web": [{"url": f"https://{host}/report.pdf"}]}
+    )
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva")
     assert report["state"] == "done"
     assert len(report["references"]) == 1
     assert report["references"][0]["source"] == host
@@ -260,13 +271,14 @@ def test_canonical_url_expansion_is_bounded_without_discarding_valid_results(clo
     assert len(oversized_url) == 2048
     boundary = Boundary(
         {
-            "organic": [
-                {"link": oversized_url},
-                {"link": "https://example.org/report.pdf"},
-            ]
+            "status": "ok",
+            "web": [
+                {"url": oversized_url},
+                {"url": "https://example.org/report.pdf"},
+            ],
         }
     )
-    report = module().SerperSearch("test-only-key", opener=boundary).search("Ana Silva")
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva")
     assert report["state"] == "done"
     assert [reference["url"] for reference in report["references"]] == [
         "https://example.org/report.pdf"
@@ -277,8 +289,8 @@ def test_2048_character_canonical_url_remains_available_without_truncation(clock
     raw_url = "https://\u0130/" + "a" * 2037
     canonical_url = "https://i\u0307/" + "a" * 2037
     assert len(canonical_url) == 2048
-    boundary = Boundary({"organic": [{"link": raw_url}]})
-    report = module().SerperSearch("test-only-key", opener=boundary).search("Ana Silva")
+    boundary = Boundary({"status": "ok", "web": [{"url": raw_url}]})
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva")
     assert report["state"] == "done"
     assert len(report["references"]) == 1
     assert report["references"][0]["url"] == canonical_url
@@ -289,21 +301,18 @@ def test_2048_character_canonical_url_remains_available_without_truncation(clock
 def test_reference_fields_and_count_are_bounded_and_types_are_inferred(clock):
     boundary = Boundary(
         {
-            "organic": [
+            "status": "ok",
+            "web": [
                 {
-                    "link": f"https://example.org/{i}.html",
+                    "url": f"https://example.org/{i}.html",
                     "title": "T" * 500,
-                    "snippet": "S" * 2000,
+                    "description": "S" * 2000,
                 }
                 for i in range(20)
-            ]
+            ],
         }
     )
-    report = (
-        module()
-        .SerperSearch("test-only-key", opener=boundary)
-        .search("Ana Silva", "any")
-    )
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva", "any")
     assert len(report["references"]) == 10
     assert report["references"][0] == {
         "id": "https://example.org/0.html",
@@ -322,22 +331,22 @@ def test_reference_fields_and_count_are_bounded_and_types_are_inferred(clock):
         b"[]",
         b"null",
         b"{}",
-        b'{"organic":{}}',
-        b'{"organic":[null]}',
-        b'{"organic":[{"link":123}]}',
-        b'{"organic":[{"link":"https://example.org/","title":{}}]}',
-        b'{"organic":[],"error":"sensitive upstream detail"}',
-        b'{"organic": [], "extra": NaN}',
+        b'{"status": "ok", "web":{}}',
+        b'{"status": "ok", "web":[null]}',
+        b'{"status": "ok", "web":[{"url":123}]}',
+        b'{"status": "ok", "web":[{"url":"https://example.org/","title":{}}]}',
+        b'{"status": "ok", "web":[],"error":"sensitive upstream detail"}',
+        b'{"status": "ok", "web": [], "extra": NaN}',
         b" " * (1024 * 1024 + 1),
     ],
     ids=[
         "invalid-json",
         "array",
         "null",
-        "missing-organic",
-        "wrong-organic",
+        "missing-web",
+        "wrong-web",
         "null-item",
-        "wrong-link",
+        "wrong-url",
         "wrong-title",
         "provider-error",
         "non-finite",
@@ -346,11 +355,7 @@ def test_reference_fields_and_count_are_bounded_and_types_are_inferred(clock):
 )
 def test_malformed_or_oversized_provider_data_has_fixed_public_error(clock, raw):
     boundary = Boundary(raw=raw)
-    report = (
-        module()
-        .SerperSearch("test-only-key", opener=boundary)
-        .search("Ana Silva", "any")
-    )
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva", "any")
     assert report["state"] == "error"
     assert report["error_code"] == "failed"
     assert report["references"] == []
@@ -363,11 +368,11 @@ def test_malformed_or_oversized_provider_data_has_fixed_public_error(clock, raw)
     ("field", "template"),
     [
         ("title", "Public {}"),
-        ("snippet", "Excerpt {}"),
-        ("link", "https://{}.example.org/reference.pdf"),
-        ("link", "https://example.org/{}.pdf"),
-        ("link", "https://example.org/reference.pdf?q={}"),
-        ("link", "https://example.org/reference.pdf#{}"),
+        ("description", "Excerpt {}"),
+        ("url", "https://{}.example.org/reference.pdf"),
+        ("url", "https://example.org/{}.pdf"),
+        ("url", "https://example.org/reference.pdf?q={}"),
+        ("url", "https://example.org/reference.pdf#{}"),
     ],
     ids=[
         "title",
@@ -383,17 +388,17 @@ def test_escaped_lone_surrogates_fail_before_references_are_emitted(
 ):
     item = {
         "title": "Public reference",
-        "link": "https://example.org/reference.pdf",
-        "snippet": "Search excerpt",
+        "url": "https://example.org/reference.pdf",
+        "description": "Search excerpt",
     }
     item[field] = template.format(chr(surrogate_codepoint))
     # Boundary serializes with ensure_ascii=True: the invalid scalar arrives as
     # an escaped JSON string, rather than invalid UTF-8 rejected by byte decoding.
-    boundary = Boundary({"organic": [item]})
+    boundary = Boundary({"status": "ok", "web": [item]})
     events = []
     report = (
         module()
-        .SerperSearch("test-only-key", opener=boundary)
+        .SecuritySearch(opener=boundary)
         .search("Ana Silva", "any", events.append)
     )
     assert report["state"] == "error"
@@ -407,16 +412,17 @@ def test_escaped_lone_surrogates_fail_before_references_are_emitted(
 def test_valid_non_bmp_metadata_is_preserved(clock):
     boundary = Boundary(
         {
-            "organic": [
+            "status": "ok",
+            "web": [
                 {
                     "title": "Public \U0001f4c4",
-                    "snippet": "Excerpt \U0001f30d",
-                    "link": "https://example.org/\U0001f4c4.pdf",
+                    "description": "Excerpt \U0001f30d",
+                    "url": "https://example.org/\U0001f4c4.pdf",
                 }
-            ]
+            ],
         }
     )
-    report = module().SerperSearch("test-only-key", opener=boundary).search("Ana Silva")
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva")
     assert report["state"] == "done"
     assert report["references"][0]["title"] == "Public \U0001f4c4"
     assert report["references"][0]["snippet"] == "Excerpt \U0001f30d"
@@ -428,9 +434,9 @@ def test_valid_non_bmp_metadata_is_preserved(clock):
     ("field", "value"),
     [
         ("title", "Public \ud800"),
-        ("snippet", "Excerpt \udfff"),
-        ("link", "https://\ud800.example.org/reference.pdf"),
-        ("link", "https://example.org/\udfff.pdf"),
+        ("description", "Excerpt \udfff"),
+        ("url", "https://\ud800.example.org/reference.pdf"),
+        ("url", "https://example.org/\udfff.pdf"),
     ],
     ids=["title", "snippet", "url-host-source", "url-path"],
 )
@@ -446,13 +452,11 @@ def test_surrogate_provider_results_leave_real_job_html_and_updates_usable(
 
     item = {
         "title": "Public reference",
-        "link": "https://example.org/reference.pdf",
-        "snippet": "Search excerpt",
+        "url": "https://example.org/reference.pdf",
+        "description": "Search excerpt",
     }
     item[field] = value
-    search = module().SerperSearch(
-        "test-only-key", opener=Boundary({"organic": [item]})
-    )
+    search = module().SecuritySearch(opener=Boundary({"status": "ok", "web": [item]}))
     settings = Settings(secret_key="unicode-provider-tests-only")
     with JobManager(settings, document_search=search) as manager:
         app = create_app(settings, manager)
@@ -495,7 +499,7 @@ def test_surrogate_provider_results_leave_real_job_html_and_updates_usable(
         (TimeoutError("secret-test-token"), "failed"),
         (
             HTTPError(
-                "https://google.serper.dev/search",
+                "https://securityops.co/api/v1/web",
                 429,
                 "secret-test-token",
                 Message(),
@@ -505,7 +509,7 @@ def test_surrogate_provider_results_leave_real_job_html_and_updates_usable(
         ),
         (
             HTTPError(
-                "https://google.serper.dev/search",
+                "https://securityops.co/api/v1/web",
                 302,
                 "secret-test-token",
                 Message(),
@@ -521,7 +525,7 @@ def test_provider_errors_are_not_retried_or_leaked(clock, error, code):
     events = []
     report = (
         module()
-        .SerperSearch("secret-test-token", opener=boundary)
+        .SecuritySearch(opener=boundary)
         .search("Ana Silva", "any", events.append)
     )
     assert report["state"] == "error"
@@ -531,13 +535,87 @@ def test_provider_errors_are_not_retried_or_leaked(clock, error, code):
     assert len(boundary.calls) == 1
 
 
-def test_missing_credentials_never_calls_provider(monkeypatch, clock):
+def test_provider_needs_no_credentials_and_ignores_legacy_key(monkeypatch, clock):
     monkeypatch.delenv("SERPER_API_KEY", raising=False)
-    assert module().SerperSearch.from_env().available is False
-    boundary = Boundary({"organic": []})
-    report = module().SerperSearch("", opener=boundary).search("Ana Silva", "any")
-    assert report["error_code"] == "unavailable"
+    assert module().SecuritySearch.from_env().available is True
+    boundary = Boundary({"status": "ok", "web": []})
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva", "any")
+    assert report["state"] == "done"
+    monkeypatch.setenv("SERPER_API_KEY", "unused-legacy-key")
+    assert module().SecuritySearch.from_env().available is True
+    assert len(boundary.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "engine", ["google_api", "Google", "", None, [], "brave&scraper=google_api"]
+)
+def test_invalid_engine_never_performs_io_or_consumes_budget(clock, engine):
+    boundary = Boundary({"status": "ok", "web": []})
+    search = module().SecuritySearch(opener=boundary, daily_limit=1)
+    with pytest.raises(ValueError):
+        search.search("Ana Silva", engine=engine)
     assert boundary.calls == []
+    assert search.search("Ana Silva")["state"] == "done"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"web": []},
+        {"status": "error", "web": [], "message": "private upstream reason"},
+        {"status": "rate limited", "web": []},
+        {"status": "ok", "web": None},
+    ],
+)
+def test_http_success_with_unsuccessful_payload_is_fixed_failure(clock, payload):
+    boundary = Boundary(payload)
+    report = (
+        module().SecuritySearch(opener=boundary).search("Ana Silva", engine="google")
+    )
+    assert report["state"] == "error"
+    assert report["error_code"] == "failed"
+    assert report["error"] == module().DocumentSearchError("failed").public_message
+    assert len(boundary.calls) == 1
+
+
+@pytest.mark.parametrize("status", [401, 403, 503])
+def test_unavailable_http_errors_are_fixed_without_fallback(clock, status):
+    error = HTTPError(
+        "https://securityops.co/api/v1/web",
+        status,
+        "private upstream reason",
+        Message(),
+        None,
+    )
+    boundary = Boundary(error=error)
+    report = (
+        module().SecuritySearch(opener=boundary).search("Ana Silva", engine="google")
+    )
+    assert report["state"] == "error"
+    assert report["error_code"] == "unavailable"
+    assert report["error"] == module().DocumentSearchError("unavailable").public_message
+    assert len(boundary.calls) == 1
+
+
+def test_successful_result_tail_is_not_examined_or_fetched(clock):
+    boundary = Boundary(
+        {
+            "status": "ok",
+            "web": [
+                {
+                    "title": "Public",
+                    "description": "",
+                    "url": f"https://example.org/{i}.pdf",
+                }
+                for i in range(10)
+            ]
+            + [None],
+        }
+    )
+    report = module().SecuritySearch(opener=boundary).search("Ana Silva")
+    assert report["state"] == "done"
+    assert len(report["references"]) == 10
+    assert len(boundary.calls) == 1
 
 
 @pytest.mark.parametrize("code", [None, [], {}, "secret-test-token"])
@@ -550,15 +628,17 @@ def test_unknown_error_codes_use_only_the_fixed_public_failure(code):
     assert str(error) == error.public_message
 
 
-def test_daily_budget_is_shared_counts_failures_and_resets_on_utc_day(clock):
+def test_daily_budget_is_shared_across_engines_counts_failures_and_resets_on_utc_day(
+    clock,
+):
     boundary = Boundary(error=URLError("network failure"))
-    first = module().SerperSearch("test-only-key", opener=boundary, daily_limit=1)
-    second = module().SerperSearch("test-only-key", opener=boundary, daily_limit=1)
+    first = module().SecuritySearch(opener=boundary, daily_limit=1)
+    second = module().SecuritySearch(opener=boundary, daily_limit=1)
     assert first.search("Ana Silva", "any")["error_code"] == "failed"
-    assert second.search("Ana Silva", "any")["error_code"] == "quota"
+    assert second.search("Ana Silva", "any", engine="google")["error_code"] == "quota"
     assert len(boundary.calls) == 1
     clock["utc"] += 86400
-    assert second.search("Ana Silva", "any")["error_code"] == "failed"
+    assert second.search("Ana Silva", "any", engine="google")["error_code"] == "failed"
     assert len(boundary.calls) == 2
 
 
@@ -571,8 +651,8 @@ def test_spacing_across_midnight_charges_each_upstream_start_to_its_utc_day(cloc
             starts.append(clock["utc"])
             return super().open(request, timeout=timeout)
 
-    search = module().SerperSearch(
-        "test-only-key", opener=RecordingBoundary({"organic": []}), daily_limit=2
+    search = module().SecuritySearch(
+        opener=RecordingBoundary({"status": "ok", "web": []}), daily_limit=2
     )
     reports = [search.search("Ana Silva") for _ in range(4)]
     assert starts == [86399.0, 86400.0, 86401.0]
@@ -586,8 +666,8 @@ def test_spacing_across_midnight_charges_each_upstream_start_to_its_utc_day(cloc
 
 
 def test_calls_are_spaced_at_least_one_second(clock):
-    boundary = Boundary({"organic": []})
-    search = module().SerperSearch("test-only-key", opener=boundary)
+    boundary = Boundary({"status": "ok", "web": []})
+    search = module().SecuritySearch(opener=boundary)
     assert search.search("Ana Silva", "any")["state"] == "done"
     assert search.search("Ana Souza", "any")["state"] == "done"
     assert clock["sleeps"] == [1.0]
@@ -597,14 +677,14 @@ def test_calls_are_spaced_at_least_one_second(clock):
 def test_invalid_timeout_configuration_fails_closed(monkeypatch, value):
     monkeypatch.setenv("DEEPER_NAME_TIMEOUT", value)
     with pytest.raises(ValueError):
-        module().SerperSearch.from_env()
+        module().SecuritySearch.from_env()
 
 
 def test_env_configuration_is_private_and_bounded(monkeypatch, clock):
     monkeypatch.setenv("SERPER_API_KEY", "test-only-key")
     monkeypatch.setenv("DEEPER_NAME_DAILY_LIMIT", "1")
     monkeypatch.setenv("DEEPER_NAME_TIMEOUT", "2.5")
-    search = module().SerperSearch.from_env()
+    search = module().SecuritySearch.from_env()
     assert search.available
     assert "test-only-key" not in repr(search)
 
@@ -617,20 +697,18 @@ def test_continuously_readable_response_cannot_run_past_deadline(clock):
 
     class SlowBoundary:
         def open(self, request, *, timeout):
-            return SlowResponse(b'{"organic":[]}')
+            response = SlowResponse(b'{"status": "ok", "web":[]}')
+            response.request_url = request.full_url
+            return response
 
-    report = (
-        module()
-        .SerperSearch("test-only-key", opener=SlowBoundary())
-        .search("Ana Silva")
-    )
+    report = module().SecuritySearch(opener=SlowBoundary()).search("Ana Silva")
     assert report["state"] == "error"
     assert report["error_code"] == "failed"
 
 
 def test_default_budget_stops_the_101st_upstream_call(clock):
-    boundary = Boundary({"organic": []})
-    search = module().SerperSearch("test-only-key", opener=boundary)
+    boundary = Boundary({"status": "ok", "web": []})
+    search = module().SecuritySearch(opener=boundary)
     for _ in range(100):
         assert search.search("Ana Silva")["state"] == "done"
     assert search.search("Ana Silva")["error_code"] == "quota"
@@ -641,7 +719,7 @@ def test_default_budget_stops_the_101st_upstream_call(clock):
 def test_invalid_daily_limit_configuration_fails_closed(monkeypatch, value):
     monkeypatch.setenv("DEEPER_NAME_DAILY_LIMIT", value)
     with pytest.raises(ValueError):
-        module().SerperSearch.from_env()
+        module().SecuritySearch.from_env()
 
 
 def test_default_network_opener_refuses_redirects_without_following(monkeypatch, clock):
@@ -652,15 +730,10 @@ def test_default_network_opener_refuses_redirects_without_following(monkeypatch,
     calls = []
 
     class Handler(BaseHTTPRequestHandler):
-        def do_POST(self):
+        def do_GET(self):
             calls.append(self.path)
             self.send_response(302)
             self.send_header("Location", "/must-not-be-requested")
-            self.end_headers()
-
-        def do_GET(self):
-            calls.append(self.path)
-            self.send_response(200)
             self.end_headers()
 
         def log_message(self, format, *args):
@@ -677,7 +750,7 @@ def test_default_network_opener_refuses_redirects_without_following(monkeypatch,
 
     monkeypatch.setattr(module(), "Request", local_request)
     try:
-        report = module().SerperSearch("test-only-key").search("Ana Silva", "any")
+        report = module().SecuritySearch().search("Ana Silva", "any")
         assert report["state"] == "error"
         assert calls == ["/redirect"]
     finally:

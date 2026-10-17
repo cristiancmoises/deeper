@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "deeper-maigret"
 version = "0.5.0"
-description = "A private-session web interface for Maigret usernames and Serper public-document references"
+description = "A private-session web interface for Maigret usernames and keyless SecuritySearch public-document references"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE", "LICENSE-MAIGRET"]
