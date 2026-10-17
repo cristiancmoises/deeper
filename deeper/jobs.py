@@ -8,6 +8,14 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
 from .config import Settings
+from .documents import (
+    DocumentSearchError,
+    SerperSearch,
+    build_query,
+    google_search_url,
+    validate_file_type,
+    validate_full_name,
+)
 from .engine import validate_username
 from .processes import WorkerPool
 
@@ -21,7 +29,7 @@ class SessionCapacityError(CapacityError):
 
 
 class JobManager:
-    def __init__(self, settings: Settings, *, runner=None):
+    def __init__(self, settings: Settings, *, runner=None, document_search=None):
         self.settings = settings
         self._lock = threading.RLock()
         self._jobs = {}
@@ -35,6 +43,9 @@ class JobManager:
             max_workers=settings.workers, thread_name_prefix="deeper"
         )
         self._runner = runner or self._run_process
+        self._document_search = (
+            document_search if document_search is not None else SerperSearch.from_env()
+        )
         self._stop = threading.Event()
         self._maintenance_thread = threading.Thread(
             target=self._maintain, name="deeper-maintenance", daemon=True
@@ -56,8 +67,21 @@ class JobManager:
             if job.get("finished") is not None and job["finished"] < cutoff:
                 del self._jobs[token]
 
-    def submit(self, username: str, owner: str) -> str:
-        username = validate_username(username)
+    @property
+    def name_search_available(self):
+        return self._document_search.available
+
+    def submit(
+        self, username: str, owner: str, *, mode="username", file_type="any"
+    ) -> str:
+        if mode not in ("username", "name"):
+            raise ValueError("Escolha um modo de busca válido.")
+        file_type = validate_file_type(file_type)
+        username = (
+            validate_full_name(username)
+            if mode == "name"
+            else validate_username(username)
+        )
         with self._lock:
             if self._closed:
                 raise CapacityError("Server is shutting down")
@@ -66,12 +90,16 @@ class JobManager:
                 if (
                     job["owner"] == owner
                     and job["username"] == username
+                    and job["mode"] == mode
+                    and job["file_type"] == file_type
                     and job["state"] in ("queued", "running")
                 ):
                     return token
                 if (
                     job["owner"] == owner
                     and job["username"] == username
+                    and job["mode"] == mode
+                    and job["file_type"] == file_type
                     and job["state"] == "done"
                     and self.settings.cache_ttl
                     and time.monotonic() - job["finished"] < self.settings.cache_ttl
@@ -97,12 +125,14 @@ class JobManager:
             self._jobs[token] = {
                 "owner": owner,
                 "username": username,
+                "mode": mode,
+                "file_type": file_type,
                 "state": "queued",
                 "created": time.monotonic(),
                 "started": None,
                 "finished": None,
                 "checked": 0,
-                "total": self.settings.top_sites,
+                "total": 1 if mode == "name" else self.settings.top_sites,
                 "unknown": 0,
                 "profiles": [],
                 "profile_events": [],
@@ -111,6 +141,12 @@ class JobManager:
                 "error": "",
                 "cache_reused": False,
             }
+            if mode == "name":
+                self._jobs[token].update(
+                    query=build_query(username, file_type),
+                    google_url=google_search_url(username, file_type),
+                    references=[],
+                )
             self._pending.setdefault(owner, deque()).append(token)
             self._owner_turns.setdefault(owner, 0)
             self._dispatch_locked()
@@ -157,6 +193,8 @@ class JobManager:
                 "profile_names",
                 "reconcile_profiles",
             }
+            if job["mode"] == "username":
+                internal.update(("mode", "file_type"))
             snapshot = deepcopy(
                 {key: value for key, value in job.items() if key not in internal}
             )
@@ -181,7 +219,7 @@ class JobManager:
                 raise ValueError("Invalid update cursor")
             endpoint = job["finished"] or time.monotonic()
             reconcile = job["reconcile_profiles"]
-            return {
+            updates = {
                 "state": job["state"],
                 "checked": job["checked"],
                 "total": job["total"],
@@ -195,6 +233,13 @@ class JobManager:
                 ),
                 "error": job["error"],
             }
+            if job["mode"] == "name":
+                updates.update(
+                    mode="name",
+                    file_type=job["file_type"],
+                    references=deepcopy(job["references"]),
+                )
+            return updates
 
     @staticmethod
     def _index_profiles(job, profiles):
@@ -225,6 +270,18 @@ class JobManager:
             job = self._jobs.get(token)
             if job is None:
                 return
+            if job["mode"] == "name":
+                if report.get("checked") == 1:
+                    job["checked"] = 1
+                references = report.get("references")
+                if isinstance(references, list):
+                    job["references"] = deepcopy(references[:10])
+                # Only provider-defined public errors may cross this boundary.
+                if report.get("state") == "error":
+                    job["error"] = DocumentSearchError(
+                        report.get("error_code", "failed")
+                    ).public_message
+                return
             for name in ("checked", "total", "unknown"):
                 if name in report:
                     job[name] = deepcopy(report[name])
@@ -244,24 +301,34 @@ class JobManager:
             job = self._jobs[token]
             username = job["username"]
             owner = job["owner"]
+            mode = job["mode"]
+            file_type = job["file_type"]
         state = "error"
         try:
-            report = self._runner(
-                username, self.settings, lambda event: self._update(token, event)
-            )
+
+            def emit(event):
+                self._update(token, event)
+
+            if mode == "name":
+                report = self._document_search.search(username, file_type, emit)
+            else:
+                report = self._runner(username, self.settings, emit)
             self._update(token, report)
             state = report.get("state", "error")
             if state not in ("done", "partial", "error"):
                 state = "error"
+        except DocumentSearchError as error:
+            with self._lock:
+                self._jobs[token]["error"] = error.public_message
         except TimeoutError:
-            state = "partial"
+            state = "error" if mode == "name" else "partial"
         except Exception:  # noqa: BLE001 - keep private worker details out of responses
             state = "error"
         finally:
             with self._lock:
                 if token in self._jobs:
                     self._jobs[token].update(state=state, finished=time.monotonic())
-                    if state == "error":
+                    if state == "error" and not self._jobs[token]["error"]:
                         self._jobs[token]["error"] = (
                             "Não foi possível concluir a busca. Tente novamente."
                         )

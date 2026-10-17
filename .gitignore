@@ -9,6 +9,7 @@ dist/
 
 # Local environment and deployment configuration; never publish credentials or VPS details.
 .env*
+!.env.example
 ionos-proxy.conf
 
 # Local prompts and internal working material are not part of the public project.

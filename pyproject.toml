@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deeper-maigret"
-version = "0.4.0"
-description = "A black and cyan, progressively enhanced web interface for Maigret"
+version = "0.5.0"
+description = "A private-session web interface for Maigret usernames and Serper public-document references"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE", "LICENSE-MAIGRET"]

@@ -1,42 +1,77 @@
-# Deeper 0.3.0: validation
+# Deeper 0.5.0: validation
 
 **English** | [Português (Brasil)](pt-BR/VALIDATION.md)
 
-Date: 10 October 2026. The automated searches below use synthetic local HTTP fixtures only; no public-site usernames were queried. The live IONOS deployment is a separate release gate and is not claimed by this local test report.
+Date: 17 October 2026. This release adds full-name/public-document references
+through Serper while preserving the Maigret 0.6.6 username mode. Automated
+provider fixtures and browser tests are separate from real-provider evidence.
+Real Serper qualification, production 0.5.0 qualification, and replacement
+screenshots remain **pending** until the selected provider key is configured.
 
-## Results
+## Verified local qualification
 
-| Check | Result |
+| Check | Evidence and scope |
 | --- | --- |
-| Python 3.12.12 full suite | 84 tests passed in 10.92s. |
-| Wheel build | `deeper_maigret-0.3.0-py3-none-any.whl`; includes `search-progress.js` and both license files. |
-| Installed-wheel smoke | Fresh venv outside the repository; version 0.3.0, Maigret 0.6.6, official database, local HTTP search, health, HTML, CSS, and JavaScript asset passed. |
-| Real Maigret with local HTTP | 3 checks completed, 1 inconclusive, 1 synthetic profile found. |
-| Incremental browser results | Chromium 153.0.8010.47, desktop 1440×900 and mobile 390×844; first profile appeared in 1.796s / 1.872s while the slow fixture was pending; progress 1/2, at most one update request in flight, no page reloads or console issues. |
-| Final reconciliation and visible status | Corrected profiles replaced stale cards, withdrawn profiles disappeared, terminal completion and unavailable-search recovery were visible, and stopped polling cleared the busy state. |
-| No-JavaScript fallback | Search remained server-rendered with a manual refresh link; no script requests in the disabled-JavaScript browser run. |
-| Safe rendering and recovery | HTML-like fields stayed inert, `javascript:` links were rejected, safe links used `noopener noreferrer`, and polling stopped after three 503 responses. |
-| Accessibility and layout | Reduced motion and 200% text at 320px passed without horizontal overflow. |
-| Progress-payload benchmark | Two synthetic 500-site runs: 14 progress messages, 14,993 incremental worker-format JSONL bytes vs 42,984 cumulative-reference bytes (65.1% lower); cold / second run 4.150s / 3.008s. |
-| Compose configuration | `docker compose config --quiet` passed. A local image build was not run; the release deployment is the separate image-build check. |
+| Full automated suite | 233 tests passed in 12.68 seconds; exit 0. |
+| Provider and application/job integration | The full suite includes controlled HTTP/provider payloads, query validation, response bounds, filtering, quota/errors, credential exclusion, consent, ownership, shared scheduling, and snapshots. These are not live Serper searches. |
+| Installed 0.5.0 wheel | Built wheel installed in a private virtual environment; verifier ran from outside the checkout and confirmed import from installed `site-packages/deeper`, package/health version 0.5.0, HTML/CSS, both progress scripts, all three source SVG icons, and name-mode filter/required-consent controls; exit 0. |
+| Real Maigret with local HTTP | Installed-wheel smoke completed three checks, with one inconclusive result and one synthetic profile found. Only loopback fixtures were queried. |
+| Browser QA | Legacy username and new document QA passed in real Chromium; exit 0. Document checks covered widths 320, 768, 1024, and 1440 with controlled results. Nine Unicode-boundary checks also passed. Browser fixtures do not establish real-provider coverage. |
+| Dependency advisories | `pip-audit` of the hash-locked dependencies checked 68 packages: zero known advisories, zero skipped packages; exit 0. This is a point-in-time advisory check, not proof of vulnerability absence. |
+| Compose configuration | Configuration validation and rendered-setting checks passed: shared 2/64/2 limits, 60-second cache, 900-second retention, empty example key, provider defaults, 512 MiB RAM / 1 GiB combined budget, and existing confinement; exit 0. Production image/deployment qualification remains pending. |
+| Real-provider smoke | Pending: bounded real full-name searches, including PDF, DOCX, non-ASCII names, legitimate empty results, errors, and filter behavior. |
+| Production qualification | Pending: exact release artifact/version, `/health`, name search, mixed-mode concurrency, memory budget, session isolation, and no OOM on the Deeper deployment. |
+| Public screenshots | Existing README images were captured for 0.4.0 username mode. Real 0.5.0 name/document captures have not replaced them. |
 
-The benchmark uses Linux x86_64, Python 3.12.12, Maigret 0.6.6, 20 connections, one worker, and a local HTTP fixture with a 5ms response delay. These timings and payload sizes do not predict public-site latency; Deeper does not control the response time of external sites. [`PERFORMANCE.md`](PERFORMANCE.md) records the method and the smaller 100-site sample where four sparse events carried slightly more bytes incrementally than cumulatively.
+The local checks above passed; real-provider and production release gates remain
+pending. Maigret tests use the real
+engine with local HTTP fixtures and synthetic profiles. Serper tests use
+controlled responses rather than credits or live accounts. Browser fixtures
+test UI behavior; their results must not be published as real provider findings.
 
 ## Reproduction
 
+Use the project's existing QA environment; browser and build tools are external
+development tools, not new runtime dependencies:
+
 ```sh
 .venv/bin/python -m pytest -q
+.venv/bin/python -m pytest -q tests/test_documents.py tests/test_name_jobs.py tests/test_name_app.py tests/test_document_ui.py
+docker compose config --quiet
 .venv/bin/python -m build --wheel
-LD_LIBRARY_PATH=/path/to/guix/profile/lib .venv/bin/python tests/verify_ui.py --browser /path/to/chromium
-.venv/bin/python scripts/benchmark.py --project /path/to/deeper --output /tmp/progress.json --runs 2 --sites 500
+.venv/bin/python tests/verify_ui.py --browser /path/to/chromium --output /tmp/deeper-username-qa
+.venv/bin/python tests/verify_documents_ui.py --browser /path/to/chromium --output /tmp/deeper-document-qa
 ```
 
-Run the installed-wheel smoke using a fresh virtual environment with hash-locked runtime dependencies, from a directory outside the repository. `tests/verify_installation.py` checks the installed module path, package and engine versions, health endpoint, official site database, local HTTP search, HTML, CSS, and packaged JavaScript asset.
+Test the built wheel from a fresh environment outside the checkout with the
+hash-locked runtime dependencies. Confirm the installed version, Maigret
+database, `/health`, HTML/CSS, both progress scripts, source icons, and license
+files. A package health response checks package availability; it does not
+validate Serper credentials, credits, connectivity, or search coverage.
 
-## Limitations
+Real-provider checks require a privately configured `SERPER_API_KEY` and a
+bounded call budget. Never print the credential or include it in test reports,
+screenshots, command arguments, or source control. A missing key must produce
+the unavailable state, never substitute fabricated references. Record actual
+provider outcomes separately from fixtures before claiming live success.
 
-- Public sites were not queried. Network conditions, blocks, and platform response times may dominate search duration. A cold search still loads Maigret's database.
-- The 0.3.0 full suite ran on Python 3.12.12; Python 3.11 was not rerun for this release. The 0.2.0 validation record is historical and does not substitute for a 0.3.0 Python 3.11 run.
-- Jobs and cache stay in memory, are private to one session, and expire under the configured retention limit. Run a single HTTP instance.
-- Checks incompatible with a username or requiring unconfigured protocols may be skipped by Maigret and counted among processed items.
-- Windows was not tested; the SIGTERM check is Unix-specific.
+## Limits of this evidence
+
+- A quoted exact-name query and search-index reference do not prove identity,
+  document contents, MIME type, availability, or completeness. Unknown file
+  types remain unverified; empty responses do not prove absence.
+- The provider timeout is a normal `urllib` HTTP timeout (12 seconds by default,
+  configurable from 1 to 30), not the username process watchdog or a hard
+  wall-clock bound. Responses are capped at 1 MiB with no automatic retries.
+- The 100-call UTC daily guard applies per process and resets on restart. It
+  cannot guarantee account-wide charges or control other clients. No credit
+  purchase or automatic top-up is performed.
+- Both modes share the 2-worker/64-global/2-session defaults, 60-second private
+  cache, and 900-second completed-job retention. Run one HTTP application
+  instance. Session limits are capacity controls, not robust bot identity checks.
+- Previous benchmarks in [PERFORMANCE.md](PERFORMANCE.md) are historical local
+  username measurements. They do not measure Serper latency, new-release image
+  size, production throughput, or public-site coverage.
+- Target support for Python 3.11/3.12 and documentation for Windows do not
+  establish a fresh test on every OS/interpreter. Record actual release runs;
+  Unix signal tests do not establish Windows behavior.

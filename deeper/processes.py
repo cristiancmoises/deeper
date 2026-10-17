@@ -1,6 +1,7 @@
 """Bounded, reusable Maigret subprocesses; no persistent search data."""
 from dataclasses import asdict, dataclass
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -41,10 +42,12 @@ class WorkerPool:
                 raise RuntimeError('Worker pool is closed')
             if self._idle:
                 return self._idle.pop()
+            worker_env = os.environ.copy()
+            worker_env.pop('SERPER_API_KEY', None)
             process = subprocess.Popen(
                 [sys.executable, '-m', 'deeper.worker'], stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, encoding='utf-8', bufsize=1,
+                text=True, encoding='utf-8', bufsize=1, env=worker_env,
             )
             worker = _Worker(process)
             self._all.add(worker)

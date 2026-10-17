@@ -1,6 +1,7 @@
 """Exercise actual child processes: reuse, bounded lifetime, timeout and cleanup."""
 import importlib
 import json
+import os
 import subprocess
 import sys
 import time
@@ -63,6 +64,32 @@ async def search(username, settings, emit, *, sites):
 worker.search_username = search
 raise SystemExit(worker.main())
 '''
+
+
+def test_worker_child_environment_excludes_serper_key_without_mutating_parent(launch_worker, monkeypatch):
+    monkeypatch.setenv('SERPER_API_KEY', 'worker-test-key-not-real')
+    monkeypatch.setenv('DEEPER_WORKER_TEST', 'preserved')
+    monkeypatch.setenv('HTTPS_PROXY', 'http://fixture-proxy.invalid:3128')
+    monkeypatch.setenv('PATH', '/fixture-path')
+    launch_worker("""
+import json, os, sys
+json.loads(sys.stdin.readline())
+print(json.dumps({'state': 'done', 'checked': 1, 'total': 1, 'unknown': 0,
+    'profiles': [], 'child_env': {key: os.environ.get(key) for key in
+        ('SERPER_API_KEY', 'DEEPER_WORKER_TEST', 'HTTPS_PROXY', 'PATH')}}), flush=True)
+""")
+    with pool_type()(Settings(workers=1)) as pool:
+        report = pool.run('synthetic', pool.settings, lambda event: None)
+    assert report['child_env'] == {
+        'SERPER_API_KEY': None,
+        'DEEPER_WORKER_TEST': 'preserved',
+        'HTTPS_PROXY': 'http://fixture-proxy.invalid:3128',
+        'PATH': '/fixture-path',
+    }
+    assert os.environ['SERPER_API_KEY'] == 'worker-test-key-not-real'
+    assert os.environ['DEEPER_WORKER_TEST'] == 'preserved'
+    assert os.environ['HTTPS_PROXY'] == 'http://fixture-proxy.invalid:3128'
+    assert os.environ['PATH'] == '/fixture-path'
 
 
 def test_worker_reuses_pid_and_database_but_clones_sites_per_search(launch_worker, synthetic_sites, tmp_path):

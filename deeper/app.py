@@ -7,6 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 from flask import Flask, redirect, render_template, request, session, url_for
 
 from .config import Settings
+from .documents import FILE_TYPES, validate_file_type, validate_full_name
 from .engine import safe_url, validate_username
 from .jobs import CapacityError, JobManager, SessionCapacityError
 
@@ -30,7 +31,16 @@ def create_app(
     app.extensions["deeper_jobs"] = manager
     app.jinja_env.filters["safe_url"] = safe_url
 
-    def render(*, username="", job=None, error=None, code=200):
+    def render(
+        *,
+        username="",
+        job=None,
+        error=None,
+        code=200,
+        mode="username",
+        file_type="any",
+        consent=False,
+    ):
         session.setdefault("owner", secrets.token_urlsafe(32))
         session.setdefault("csrf_token", secrets.token_urlsafe(32))
         return render_template(
@@ -39,30 +49,72 @@ def create_app(
             job=job,
             error=error,
             csrf_token=session["csrf_token"],
+            mode=mode,
+            file_type=file_type,
+            name_search_available=getattr(manager, "name_search_available", False),
+            file_types=FILE_TYPES,
+            consent=consent,
         ), code
 
     @app.get("/")
     def home():
-        return render()
+        mode = request.args.get("mode", "username")
+        if mode not in ("username", "name"):
+            return render(error="Escolha um modo de busca válido.", code=422)
+        return render(mode=mode)
 
     @app.post("/search")
     def search():
+        mode = request.form.get("mode", "username")
+        file_type = request.form.get("file_type", "any")
+        consent = request.form.get("consent", "") == "1"
+        form = {
+            "mode": mode if mode in ("username", "name") else "username",
+            "file_type": file_type if file_type in FILE_TYPES else "any",
+            "consent": consent,
+        }
         expected = session.get("csrf_token", "")
         supplied = request.form.get("csrf_token", "")
         if not expected or not secrets.compare_digest(expected, supplied):
-            return render(error="A sessão expirou. Envie a busca novamente.", code=400)
+            return render(
+                error="A sessão expirou. Envie a busca novamente.", code=400, **form
+            )
         value = request.form.get("username", "")
         try:
-            username = validate_username(value)
+            if mode not in ("username", "name"):
+                raise ValueError("Escolha um modo de busca válido.")
+            file_type = validate_file_type(file_type)
+            username = (
+                validate_full_name(value)
+                if mode == "name"
+                else validate_username(value)
+            )
+            if mode == "name" and not consent:
+                raise ValueError(
+                    "Confirme o envio do nome ao Serper/Google para iniciar a busca."
+                )
         except ValueError as error:
-            return render(username=value[:65], error=str(error), code=422)
+            return render(username=value[:120], error=str(error), code=422, **form)
+        if mode == "name" and not getattr(manager, "name_search_available", False):
+            return render(
+                username=username,
+                error="A busca por nome está indisponível: o serviço não está configurado.",
+                code=503,
+                **form,
+            )
         try:
-            token = manager.submit(username, session["owner"])
+            if mode == "username" and file_type == "any":
+                token = manager.submit(username, session["owner"])
+            else:
+                token = manager.submit(
+                    username, session["owner"], mode=mode, file_type=file_type
+                )
         except SessionCapacityError:
             response, code = render(
                 username=username,
                 error="Você já tem buscas em andamento. Aguarde uma delas terminar para enviar outra.",
                 code=429,
+                **form,
             )
             return response, code, {"Retry-After": "5"}
         except CapacityError:
@@ -70,6 +122,7 @@ def create_app(
                 username=username,
                 error="As buscas estão ocupadas. Tente novamente em alguns instantes.",
                 code=503,
+                **form,
             )
             return response, code, {"Retry-After": "5"}
         return redirect(url_for("results", token=token), code=303)
@@ -83,7 +136,13 @@ def create_app(
                 error="Esta busca expirou ou não está disponível nesta sessão.",
                 code=404,
             )
-        return render(username=job["username"], job=job)
+        return render(
+            username=job["username"],
+            job=job,
+            mode=job.get("mode", "username"),
+            file_type=job.get("file_type", "any"),
+            consent=job.get("mode") == "name",
+        )
 
     @app.get("/search/<token>/updates")
     def search_updates(token):

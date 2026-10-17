@@ -1,18 +1,26 @@
-# Deeper 0.4.0
+# Deeper 0.5.0
 
 **English** | [Português (Brasil)](README.pt-BR.md)
 
 Try the live application: **[deeper.securityops.co](https://deeper.securityops.co)**
 
-Deeper is an independent, minimal web interface for **Maigret 0.6.6**. Enter a
-username to check publicly accessible profile pages across supported sites.
+The 0.5.0 Serper integration awaits a real-provider smoke test and production
+qualification. The live link does not certify that production already runs 0.5.0.
+
+Deeper is an independent web interface with two modes. **Username** uses
+**Maigret 0.6.6** to check public profile pages. **Full name and documents**
+uses **Serper/Google** to find up to **10 search-index references**, with one
+selector for any result type, PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, ODT, ODS, ODP,
+RTF, TXT, or CSV.
 Matching usernames do not prove that profiles belong to the same person; review
-each result in context. Deeper does not perform recursive searches, use
-authenticated platform cookies, or bypass access controls.
+each result in context. A name reference does not prove identity or document
+contents, even when the exact name appears in the query. Deeper does not guess
+usernames from names, download or preview documents, fetch result URLs, perform
+recursive searches, use authenticated platform cookies, or bypass access controls.
 
 The interface uses a black-and-cyan design with an animated CSS title. The
 search landing page is server-rendered without JavaScript. A pending results
-page loads one same-origin script that appends new profiles and updates progress
+page loads a mode-specific same-origin script that appends results and updates progress
 without reloading the whole page. If JavaScript is unavailable, the HTML still
 works and a manual refresh link remains available. Results are private to a
 browser session and kept in memory; the application has no database, persistent
@@ -20,11 +28,14 @@ search history, or on-disk reports.
 
 ## Screenshots
 
-The initial search screen:
+These screenshots were captured for **0.4.0** and show username search.
+New real-provider 0.5.0 name/document captures are pending qualification.
+
+The initial username search screen (0.4.0):
 
 ![Deeper initial search screen](docs/images/deeper-search-start.png)
 
-A search in progress with results:
+A username search in progress with results (0.4.0):
 
 ![Deeper search progress and results](docs/images/deeper-search-results.png)
 
@@ -32,21 +43,28 @@ The displayed usernames and matches are examples, not identity verification.
 
 ## Quick deployment with Docker Compose
 
-Requirements: Git, Docker Engine, and the Docker Compose plugin. The default
+Requirements: Git, Docker Engine, the Docker Compose plugin, and a Serper API key
+for full-name search. Username search works without that key. The default
 configuration binds to `127.0.0.1:8080`, so the service is not exposed directly
 to the public internet.
 
 ```sh
 git clone https://github.com/cristiancmoises/deeper.git
 cd deeper
+cp .env.example .env
+# Edit .env and set SERPER_API_KEY to your own key for full-name search.
 docker compose up -d --build
 curl -fsS http://127.0.0.1:8080/health
 ```
 
 Open <http://127.0.0.1:8080>. Follow startup output with
 `docker compose logs -f deeper`, and stop the service with `docker compose down`.
-The public source repository is on
-[GitHub](https://github.com/cristiancmoises/deeper).
+Keep `.env` private; Git ignores it. Public source mirrors are on
+[GitHub](https://github.com/cristiancmoises/deeper),
+[Codeberg](https://codeberg.org/berkeley/deeper),
+[Security Ops](https://git.securityops.co/cristiancmoises/deeper), and
+[Security Ops Brasil](https://git.securityops.com.br/cristiancmoises/deeper).
+The links identify repositories; 0.5.0 publication is a separate release gate.
 
 The default public-service profile runs **two searches at once**, accepts up to
 **64 outstanding searches** across sessions, and allows **two outstanding
@@ -54,8 +72,8 @@ searches per browser session**. Outstanding means queued or running. The
 container is limited to 512 MiB RAM and 1 GiB combined RAM and swap; size the host
 for the reverse proxy, operating system, and other services as well.
 
-For a lower-memory, single-search profile, create a local `.env` file beside
-`compose.yaml` with:
+For a lower-memory, single-search profile, add these settings to the local
+`.env` beside `compose.yaml`:
 
 ```dotenv
 DEEPER_WORKERS=1
@@ -69,7 +87,44 @@ put a reverse proxy with HTTPS in front of Deeper and set
 runs on the same host. If your proxy needs a non-loopback binding, restrict it
 with a firewall and do not expose the plain HTTP port directly to the internet.
 
-## What is included in 0.4.0
+## Full-name search, privacy, and provider limits
+
+Select full-name mode and enter at least two name words, from 2 to 120 characters.
+Deeper normalizes Unicode to NFC and whitespace. Letters, combining marks,
+spaces, apostrophes, hyphens, and periods are supported; quotes and query
+operators are rejected. The entire name is quoted, and the allowlisted file type
+is the only appended search operator. Explicit consent is required before
+sharing the name and file-type query with Serper/Google. Their service policies
+apply to this external processing.
+
+Each uncached name job makes **one POST** to `https://google.serper.dev/search`,
+with `num=10`, `gl=br`, and `hl=pt-br`. There are no automatic retries or scraping
+fallback. Responses are bounded to 1 MiB. The default HTTP timeout is 12 seconds,
+configurable from 1 to 30 seconds: a normal `urllib` HTTP timeout, not a
+process-enforced wall-clock deadline. The external Google link opens additional
+results outside Deeper and its result limit.
+
+References contain a URL-based identifier, title, URL, snippet, source hostname,
+and inferred file type. They are deduplicated by URL, not title or host. Known
+document extensions inconsistent with the selected filter are removed; unknown
+types remain labeled unverified. Neither extension nor search filter proves a
+response's MIME type or document contents. Indexes can omit, delay, or misattribute
+results. An empty search does not prove absence.
+
+The default consumption guard allows **100 upstream calls per UTC day per
+application process**, with at least **one second between calls**. Restarting
+resets this counter. It is not an account-wide billing guarantee: other clients
+and restarts can consume credits independently. Deeper never purchases credits
+or enables automatic top-ups. Without a configured key, full-name search is
+unavailable. Exhausted limits, network failures, and invalid provider responses
+produce generic public errors, never fabricated results.
+
+## Shared scheduling in 0.5.0
+
+Both modes share the same bounded executor and worker slots. A name HTTP request
+does not create a separate worker pool. Cache identity includes session, mode,
+normalized value, and file type. Name progress counts a single provider request
+(0/1 or 1/1), rather than Maigret sites checked.
 
 - A fair queue shares search workers across browser sessions. Each available
   worker takes a search from the pending session served least recently, keeping
@@ -93,7 +148,7 @@ Measurements and methodology are documented in
 on external platforms must be measured in your own environment. Builds also use
 temporary storage and Docker cache; a smaller runtime does not eliminate that
 cost. Inspect local usage with `docker system df` and
-`docker image inspect deeper:0.4.0 --format '{{.Size}}'`. Deeper does not run
+`docker image inspect deeper:0.5.0 --format '{{.Size}}'`. Deeper does not run
 global Docker or VPS cleanup commands.
 
 ## Python installation
@@ -119,13 +174,16 @@ To select a host and port:
 env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m deeper --host 0.0.0.0 --port 8080
 ```
 
-`/health` reports whether the Maigret package is available; it does not check
-connectivity to every platform. The commands above install the package from the
+`/health` reports package availability; it does not check the Serper account,
+credits, upstream connectivity, or search coverage. A `.env` file is read by
+Compose, not automatically by Python: privately export the provider variables
+before direct Python startup to enable full-name search.
+The commands above install the package from the
 current checkout after installing its locked runtime dependencies.
 
 ## Searches, limits, and freshness
 
-Defaults enable up to **500 sites**, **20 connections** per search, **two
+Username-mode defaults enable up to **500 sites**, **20 connections** per search, **two
 simultaneous searches**, a **10-second per-site timeout**, and a **180-second
 search deadline**. A watchdog terminates blocked processes after the deadline
 plus 15 seconds for startup. Reusing a worker reduces startup overhead; it does
@@ -165,18 +223,21 @@ username format may be skipped by Maigret and counted as processed checks.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `DEEPER_TOP_SITES` | `500` | Maximum sites; `0` checks every enabled site. |
+| `SERPER_API_KEY` | empty | Private provider key; required only for name search. |
+| `DEEPER_NAME_DAILY_LIMIT` | `100` | Positive maximum upstream calls per UTC day per process; resets on restart. |
+| `DEEPER_NAME_TIMEOUT` | `12` | Finite HTTP timeout in seconds, from `1` to `30`. |
+| `DEEPER_TOP_SITES` | `500` | Username site limit; `0` checks every enabled site. |
 | `DEEPER_SITE_TIMEOUT` | `10` | Seconds per site. |
 | `DEEPER_SEARCH_TIMEOUT` | `180` | Search deadline in seconds. |
 | `DEEPER_CONNECTIONS` | `20` | Connections per search. |
-| `DEEPER_WORKERS` | `2` | Concurrent searches. |
+| `DEEPER_WORKERS` | `2` | Shared concurrent searches across both modes. |
 | `DEEPER_MAX_JOBS` | `64` | In-memory jobs, including queue and cache. |
 | `DEEPER_MAX_JOBS_PER_SESSION` | `2` | Maximum queued or running searches per browser session. |
 | `DEEPER_RETENTION` | `900` | Seconds to retain a completed job. |
 | `DEEPER_CACHE_TTL` | `60` | Reuse completed results in the same session; `0` disables it. |
 | `DEEPER_WORKER_MAX_JOBS` | `25` | Recycle a process after this many searches. |
 | `DEEPER_WORKER_IDLE_TIMEOUT` | `120` | Shut down an idle process after this many seconds. |
-| `DEEPER_SECRET_KEY` | random at startup | Optional session key to persist across restarts. |
+| `DEEPER_SECRET_KEY` | random at startup | Optional persistent session key for direct Python deployment. |
 | `DEEPER_SECURE_COOKIE` | `0` | Set to `1` when serving exclusively over HTTPS. |
 
 Compose accepts settings from the environment or a local `.env` file. Changing
@@ -187,12 +248,16 @@ preserving search coverage, extraction, timeouts, and connection defaults.
 ## Validation and license
 
 [`docs/VALIDATION.md`](docs/VALIDATION.md) records the validation performed
-for 0.3.0. The test suite uses real Maigret code against local HTTP
-fixtures with synthetic profiles. `tests/verify_ui.py` uses Playwright as an
-external QA tool; it does not add scripts to the page.
+for 0.5.0, distinguishing automated fixtures from pending live-provider and
+production checks. The test suite uses real Maigret code against local HTTP
+fixtures and controlled provider payloads; those are not live Serper evidence.
+The browser QA scripts use Playwright externally, without adding scripts to the page.
 
 Deeper is an independent interface and is not the official Maigret project.
 The backend is **Maigret 0.6.6**, an MIT-licensed project by **Soxoj**. Thank
 you to Soxoj for making the project available under the MIT license. See
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), [`LICENSE`](LICENSE), and
 [`LICENSE-MAIGRET`](LICENSE-MAIGRET) for attribution and license terms.
+Deeper itself is MIT-licensed. Source-link icons retain their own terms:
+Forgejo CC BY-SA 4.0, Codeberg CC0, and GitHub's logo usage terms, documented
+in the third-party notices.

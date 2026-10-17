@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#000000">
-  <meta name="description" content="Deeper: encontre perfis públicos por nome de usuário com Maigret.">
+  <meta name="description" content="Deeper: busque perfis públicos por usuário ou referências públicas por nome completo.">
   <meta name="robots" content="noindex, nofollow">
   <title>Deeper{% if job %} · {{ username }}{% endif %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
@@ -19,22 +19,74 @@
     <a href="https://codeberg.org/berkeley/deeper" aria-label="Código-fonte no Codeberg" title="Codeberg"><img src="{{ url_for('static', filename='icons/codeberg.svg') }}" width="20" height="20" alt=""></a>
   </nav>
   <main class="workspace{% if job or error %} has-results{% endif %}">
+    {% set name_mode = (job.mode if job and job.mode is defined else mode) == 'name' %}
     <div class="search-area">
       <h1><a class="wordmark" href="{{ url_for('home') }}" aria-label="Deeper, início">Deeper</a></h1>
-      <form class="search-bar" action="{{ url_for('search') }}" method="post" role="search">
+      <nav class="search-modes" aria-label="Modo de busca">
+        <a href="{{ url_for('home') }}"{% if not name_mode %} aria-current="page"{% endif %}>Nome de usuário</a>
+        <a href="{{ url_for('home', mode='name') }}"{% if name_mode %} aria-current="page"{% endif %}>Nome completo</a>
+      </nav>
+      <form action="{{ url_for('search') }}" method="post" role="search">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label class="visually-hidden" for="username">Nome de usuário</label>
-        <input id="username" type="search" name="username" placeholder="Nome de usuário" value="{{ username }}"
-               maxlength="65" required autocomplete="off" autocapitalize="none" spellcheck="false"
-               {% if error %}aria-invalid="true" aria-describedby="search-error"{% endif %}>
-        <button type="submit" aria-label="Pesquisar">
+        <input type="hidden" name="mode" value="{{ 'name' if name_mode else 'username' }}">
+        <div class="search-bar">
+        <label class="visually-hidden" for="username">{{ 'Nome completo' if name_mode else 'Nome de usuário' }}</label>
+        <input id="username" type="search" name="username" placeholder="{{ 'Nome completo' if name_mode else 'Nome de usuário' }}" value="{{ username }}"
+               maxlength="{{ 1024 if name_mode else 65 }}" required autocomplete="off" autocapitalize="none" spellcheck="false"
+               {% if error %}aria-invalid="true" aria-describedby="search-error{% if name_mode %} name-help{% endif %}"{% elif name_mode %}aria-describedby="name-help"{% endif %}>
+        <button type="submit" aria-label="Pesquisar"{% if name_mode and not name_search_available %} disabled aria-describedby="name-unavailable"{% endif %}>
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.7" cy="10.7" r="6.7"/><path d="m16 16 4.2 4.2"/></svg>
         </button>
+        </div>
+        {% if name_mode %}
+        <div class="name-options">
+          <label class="file-type-label" for="file-type">Tipo de arquivo</label>
+          <select id="file-type" name="file_type">{% for value, label in file_types.items() %}<option value="{{ value }}"{% if value == file_type %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          <p id="name-help" class="form-help">Use o nome completo, com pelo menos duas palavras. O servidor normaliza o nome antes de validar o limite de 120 caracteres. Até 10 referências do índice de busca; sem download de documentos.</p>
+          <label class="name-consent" for="name-consent"><input id="name-consent" type="checkbox" name="consent" value="1" required{% if consent %} checked{% endif %}><span>Concordo em enviar este nome e o filtro selecionado à Serper/Google para esta busca.</span></label>
+          {% if not name_search_available %}<p id="name-unavailable" class="form-help" data-name-unavailable role="status">Busca por nome indisponível no momento. A configuração do provedor é necessária.</p>{% endif %}
+        </div>
+        {% endif %}
       </form>
     </div>
     {% if error %}<p id="search-error" class="message error" role="alert">{{ error }}</p>{% endif %}
     {% if job %}
     {% set queue_position = job.queue_position if job.state == 'queued' and job.queue_position is integer and 0 < job.queue_position <= 9007199254740991 else none %}
+    {% if name_mode %}
+    <section class="results document-results" data-document-results aria-label="Referências públicas" aria-busy="{{ 'true' if job.state in ('queued', 'running') else 'false' }}"{% if job.state in ('queued', 'running') %} data-updates-url="{{ url_for('search_updates', token=request.view_args.token) }}"{% endif %}>
+      {% if job.cache_age is not none %}<p class="result-note">Resultados reutilizados desta sessão · obtidos há {{ job.cache_age }}s.</p>{% endif %}
+      <div class="search-status">
+        <span class="scanner" data-document-scanner aria-hidden="true"{% if job.state not in ('queued', 'running') %} hidden{% endif %}></span>
+        <div><h2><span data-document-state>{{ 'Aguardando para buscar' if job.state == 'queued' else 'Buscando referências' if job.state == 'running' else 'Busca não concluída' if job.state == 'error' else 'Busca concluída' }}</span> <span>{{ username }}</span></h2>
+          <p data-document-progress-label>{{ job.checked }} de 1 solicitação ao provedor <span class="separator">·</span> {{ job.elapsed }}s</p>
+          <p data-document-queue{% if queue_position is none %} hidden{% endif %}>{% if queue_position is not none %}Posição na fila: {{ queue_position }}.{% endif %}</p>
+        </div>
+        {% if job.state in ('queued', 'running') %}<a class="refresh-link" data-document-refresh href="{{ url_for('results', token=request.view_args.token) }}">Atualizar</a>{% endif %}
+      </div>
+      <progress data-document-progress aria-label="Solicitação ao provedor" value="{{ job.checked }}" max="1"{% if job.state not in ('queued', 'running') %} hidden{% endif %}></progress>
+      <p class="message error" data-document-update-error role="status" hidden></p>
+      <button class="retry-button" type="button" data-document-retry hidden>Tentar atualizar novamente</button>
+      <p class="message error document-error" data-document-error role="alert"{% if job.state != 'error' %} hidden{% endif %}>{{ job.error }}</p>
+      <div class="results-heading document-heading" data-document-heading{% if not job.references and job.state in ('queued', 'running', 'error') %} hidden{% endif %}>
+        <h2><span class="result-count" data-document-count>{{ job.references | length }}</span> <span data-document-count-label>{{ 'referência encontrada' if job.references | length == 1 else 'referências encontradas' }}</span></h2>
+      </div>
+      <div class="document-list" data-document-list>
+        {% for reference in job.references %}{% if reference.url | safe_url %}
+        <article class="profile document-reference" data-document-reference="{{ reference.url }}">
+          <h3><a href="{{ reference.url }}" target="_blank" rel="noopener noreferrer">{{ reference.title }}</a></h3>
+          <p class="document-meta">{{ reference.source }} <span class="separator">·</span> {{ reference.file_type | upper }} · tipo inferido pela URL, não verificado</p>
+          <p class="document-snippet">{{ reference.snippet }}</p>
+          <p class="profile-url">{{ reference.url }}</p>
+        </article>
+        {% endif %}{% endfor %}
+      </div>
+      <div class="empty-state" data-document-empty{% if job.references or job.state != 'done' %} hidden{% endif %}><h3>Nenhuma referência encontrada</h3><p>Tente outro filtro ou confira o nome. A ausência no índice não prova a ausência de documentos públicos.</p></div>
+      <p class="result-note" data-document-disclosure>Até 10 referências do índice de busca. Nomes iguais podem identificar pessoas diferentes. Os resultados não confirmam identidade nem o conteúdo exato dos documentos; o tipo de arquivo é inferido pela URL.</p>
+      {% if job.google_url | safe_url %}<p class="result-note"><a data-google-search href="{{ job.google_url }}" target="_blank" rel="noopener noreferrer">Ver mais resultados no Google (site externo)</a></p>{% endif %}
+      {% if job.state in ('queued', 'running') %}<script src="{{ url_for('static', filename='document-progress.js') }}" defer></script>{% endif %}
+    </section>
+    <p class="visually-hidden" data-document-announcement role="status" aria-live="polite" aria-atomic="true">{% if queue_position is not none %}Sua busca está na posição {{ queue_position }} da fila.{% elif job.state == 'running' %}Buscando referências públicas.{% elif job.state == 'done' %}Busca concluída: {{ job.references | length }} referências.{% elif job.state == 'error' %}A busca não foi concluída.{% else %}Sua busca está aguardando para começar.{% endif %}</p>
+    {% else %}
     <section class="results" aria-label="Resultados da busca" aria-busy="{{ 'true' if job.state in ('queued', 'running') else 'false' }}"{% if job.state in ('queued', 'running') %} data-updates-url="{{ url_for('search_updates', token=request.view_args.token) }}" data-cursor="{{ job.cursor }}"{% endif %}>
       {% if job.cache_age is not none %}<p class="result-note">Resultados reutilizados desta sessão · obtidos há {{ job.cache_age }}s.</p>{% endif %}
       {% if job.state in ('queued', 'running') %}
@@ -78,6 +130,7 @@
       {% if job.state in ('queued', 'running') %}<p class="message" data-terminal-message role="status" hidden></p><script src="{{ url_for('static', filename='search-progress.js') }}" defer></script>{% endif %}
     </section>
     {% if job.state in ('queued', 'running') %}<p class="visually-hidden" data-update-status role="status" aria-live="polite" aria-atomic="true">{% if queue_position is not none %}Sua busca está na posição {{ queue_position }} da fila.{% else %}A busca está em andamento.{% endif %}</p>{% endif %}
+    {% endif %}
     {% endif %}
   </main>
 </body>

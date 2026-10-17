@@ -1,11 +1,58 @@
-# Deeper 0.4.0 — search architecture
+# Deeper 0.5.0 — search architecture
 
 **English** | [Português (Brasil)](pt-BR/ARCHITECTURE.md)
 
 Deeper runs one HTTP application with an in-memory job manager and a bounded
-pool of isolated Maigret search processes. The HTTP application owns session
+executor shared by username and full-name jobs. Username searches use isolated
+Maigret processes; full-name searches make a bounded Serper HTTP request inside
+the same executor slot. The HTTP application owns session
 privacy, admission, scheduling, progress, and temporary results. A worker loads
-the Maigret database once and uses an independent site copy for each search.
+the Maigret database once and uses an independent site copy for each username search.
+
+## Modes and provider boundary
+
+`GET /?mode=name` selects the server-rendered full-name form. `POST /search`
+retains the legacy `username` field and adds `mode` and `file_type`; omitted
+fields preserve username behavior. Name mode requires `consent=1` before sending
+the name and file-type query to Serper/Google. Names are normalized to Unicode
+NFC and collapsed spaces, must have at least two words and 2–120 characters,
+and admit only letters, combining marks, spaces, apostrophes, hyphens, and
+periods. Raw oversized inputs, quotes, controls, and query operators are rejected.
+Names never generate guessed usernames.
+
+The file-type allowlist is `any`, `pdf`, `doc`, `docx`, `xls`, `xlsx`, `ppt`,
+`pptx`, `odt`, `ods`, `odp`, `rtf`, `txt`, and `csv`. The query quotes the entire
+name and appends only the selected allowlisted `filetype:` operator. Each
+uncached name job makes exactly one POST to the fixed
+`https://google.serper.dev/search` endpoint with `num=10`, `gl=br`, and `hl=pt-br`.
+There is no automatic retry, redirect following, scraping fallback, document
+download, preview, or result-URL fetch. A separate external Google link opens
+additional results outside the application.
+
+`SerperSearch.from_env()` privately loads `SERPER_API_KEY`. The key is excluded
+from settings snapshots, jobs, worker JSONL, browser responses, and logs.
+`DEEPER_NAME_DAILY_LIMIT` defaults to 100 calls per UTC day per application
+process, with at least one second between upstream calls. Restart resets the
+counter; it is a consumption guard, not an account-wide billing guarantee.
+There is no automatic credit purchase or top-up. `DEEPER_NAME_TIMEOUT` defaults
+to 12 seconds and accepts finite values from 1 to 30. It is a normal `urllib`
+HTTP timeout, not a process-enforced wall-clock deadline. Responses are bounded
+to 1 MiB. Missing keys, exhausted quotas, network errors, and malformed payloads
+produce fixed public messages without upstream exception text or invented results.
+
+## Reference contract and limits of evidence
+
+Name jobs return at most ten references, each with `id` (the canonical URL
+without its fragment), `title` (up to 300 characters), `url` (up to 2048),
+`snippet` (up to 1600), `source` (hostname), and `file_type` inferred from the URL
+or labeled unknown/HTML. Unsafe HTTP(S) reference URLs are rejected. Duplicate
+URLs collapse; equal titles or hosts do not. Known document extensions that
+disagree with the filter are removed, while unknown types remain unverified.
+
+References are search-index metadata. Neither a quoted exact-name query, an
+extension, nor a search filter proves identity, MIME type, current availability,
+or document contents. An empty search does not establish absence. Results are
+links for the user to evaluate, with no content verification or document fetch.
 
 ## Admission and fair scheduling
 
@@ -14,7 +61,8 @@ two outstanding jobs per anonymous browser session. Outstanding means queued
 or running. `DEEPER_WORKERS`, `DEEPER_MAX_JOBS`, and
 `DEEPER_MAX_JOBS_PER_SESSION` configure those limits.
 
-A submission first reuses the same session's active job for that username or a
+A submission first reuses the same session's active job for the same mode,
+normalized value, and file type, or a
 successful result completed within the cache TTL. Reuse does not create another
 job and is checked before either quota. Errors and partial results are not
 reused. For a new job, the session limit is checked before global capacity.
@@ -50,14 +98,23 @@ from the current fair scheduling order. Other sessions joining can change it;
 it is neither a global submission sequence nor a time estimate.
 
 Pending pages request progress about once per second. Updates use a cursor and
-return new profile records instead of repeating all earlier profiles. A page
+return new username profile records instead of repeating all earlier profiles.
+The existing `search-progress.js` handles username jobs. Name jobs use separate
+`document-progress.js` polling on the same private endpoint: each snapshot
+contains the full bounded `references` list, `mode`, and `file_type`. The browser
+deduplicates references by URL; name jobs have no reference cursor and retain
+legacy profile cursor `0`. Their `checked`/`total` means provider requests
+(0/1 or 1/1), not sites checked. A page
 refresh renders a full current snapshot on the server. The search landing page
 requires no JavaScript; without JavaScript, the results page provides manual
-refresh. All result and update lookups require the job's owning browser session.
+refresh. Results retain CSRF checks, ownership-based `404` responses, security
+headers, and `no-store`. All result and update lookups require the owning browser
+session. Document rendering uses inert text and validated links, with keyboard
+access, polite progress announcements, and visible empty/failure/retry states.
 
 ## Worker and result lifecycle
 
-Workers start on demand, are recycled after 25 searches, and exit after 120 idle
+Username workers start on demand, are recycled after 25 searches, and exit after 120 idle
 seconds by default. Searches check up to 500 sites with 20 connections, a
 10-second site timeout, and a 180-second overall deadline. A watchdog can kill a
 blocked worker after that deadline plus 15 seconds for startup. Search limits
@@ -70,6 +127,6 @@ searches create no persistent history or reports.
 
 Run a single HTTP application instance. Multiple independent HTTP instances
 would have separate jobs and scheduling state; a shared session secret alone
-does not share those jobs. `DEEPER_WORKERS` controls search processes, not HTTP
+does not share those jobs. `DEEPER_WORKERS` controls shared search slots, not HTTP
 application instances. The default Compose resource budget and the optional
 single-worker profile are described in [Performance and storage](PERFORMANCE.md).

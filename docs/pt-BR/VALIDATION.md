@@ -1,42 +1,77 @@
-# Deeper 0.3.0: validação
+# Deeper 0.5.0: validação
 
 [English](../VALIDATION.md) | **Português (Brasil)**
 
-Data: 10 de outubro de 2026. As buscas automatizadas abaixo usam apenas fixtures HTTP sintéticas locais; nenhum username de sites públicos foi consultado. A implantação real na IONOS é uma etapa de release separada e não é declarada neste relatório local.
+Data: 17 de outubro de 2026. A versão acrescenta referências por nome completo
+e documento público via Serper, mantendo o modo por usuário com Maigret 0.6.6.
+Fixtures automatizadas do provedor e testes no navegador são separados da
+evidência real. A qualificação real do Serper, da 0.5.0 em produção e das novas
+capturas permanece **pendente** até configurar a chave do provedor escolhido.
 
-## Resultados
+## Qualificação local verificada
 
-| Verificação | Resultado |
+| Verificação | Evidência e escopo |
 | --- | --- |
-| Suíte completa Python 3.12.12 | 84 testes passaram em 10,92s. |
-| Build do wheel | `deeper_maigret-0.3.0-py3-none-any.whl`; inclui `search-progress.js` e os dois arquivos de licença. |
-| Smoke test do wheel instalado | Venv novo fora do repositório; versão 0.3.0, Maigret 0.6.6, base oficial, busca HTTP local, health, HTML, CSS e JavaScript passaram. |
-| Maigret real com HTTP local | 3 verificações concluídas, 1 inconclusiva e 1 perfil sintético encontrado. |
-| Resultados incrementais no navegador | Chromium 153.0.8010.47, desktop 1440×900 e mobile 390×844; primeiro perfil apareceu em 1,796s / 1,872s enquanto a fixture lenta ainda aguardava; progresso 1/2, no máximo uma requisição simultânea, nenhum reload ou problema no console. |
-| Reconciliação final e status visível | Perfis corrigidos substituíram cartões antigos, perfis retirados desapareceram, conclusão e recuperação de busca indisponível ficaram visíveis e o estado busy foi limpo quando o polling parou. |
-| Alternativa sem JavaScript | Busca permaneceu em HTML renderizado no servidor com link de atualização manual; nenhuma requisição de script no navegador com JavaScript desativado. |
-| Renderização segura e recuperação | Conteúdo semelhante a HTML permaneceu inerte, links `javascript:` foram rejeitados, links seguros usaram `noopener noreferrer` e o polling parou após três respostas 503. |
-| Acessibilidade e layout | Movimento reduzido e texto a 200% em 320px passaram sem overflow horizontal. |
-| Benchmark de payloads | Duas buscas sintéticas de 500 sites: 14 mensagens, 14.993 bytes de JSONL incremental no formato do worker vs. 42.984 bytes da referência cumulativa (65,1% menor); primeira / segunda busca em 4,150s / 3,008s. |
-| Configuração Compose | `docker compose config --quiet` passou. Não foi feito build local da imagem; a implantação fará essa verificação separadamente. |
+| Suíte automatizada completa | 233 testes passaram em 12,68 segundos; saída 0. |
+| Integração de provedor e aplicação/tarefas | A suíte completa inclui payloads HTTP/provedor controlados, validação de consulta, limites de resposta, filtros, cotas/erros, exclusão da credencial, consentimento, propriedade, agendamento compartilhado e snapshots. Não são buscas reais do Serper. |
+| Wheel 0.5.0 instalado | Wheel construído e instalado em ambiente virtual privado; verificador executado fora do checkout confirmou importação do `site-packages/deeper` instalado, versão 0.5.0 do pacote/health, HTML/CSS, os dois scripts de progresso, os três ícones SVG dos fontes e filtro/consentimento obrigatório no modo por nome; saída 0. |
+| Maigret real com HTTP local | O smoke do wheel instalado concluiu três verificações, com um resultado inconclusivo e um perfil sintético encontrado. Apenas fixtures em loopback foram consultadas. |
+| QA no navegador | QA legado por usuário e novo por documento passaram em Chromium real; saída 0. Os testes de documentos cobriram larguras 320, 768, 1024 e 1440 com resultados controlados. Nove verificações de limites Unicode também passaram. Fixtures de navegador não comprovam cobertura real do provedor. |
+| Avisos de dependências | `pip-audit` das dependências fixadas com hashes verificou 68 pacotes: zero vulnerabilidades conhecidas e zero pacotes ignorados; saída 0. É uma consulta pontual de avisos, não prova de ausência de vulnerabilidades. |
+| Configuração Compose | Validação de configuração e valores renderizados passou: limites compartilhados 2/64/2, cache de 60 segundos, retenção de 900 segundos, chave vazia no exemplo, padrões do provedor, 512 MiB de RAM / 1 GiB combinado e confinamento existente; saída 0. Qualificação da imagem/implantação em produção permanece pendente. |
+| Smoke do provedor real | Pendente: buscas reais limitadas por nome, incluindo PDF, DOCX, nomes não ASCII, vazios legítimos, erros e comportamento dos filtros. |
+| Qualificação em produção | Pendente: artefato/versão exatos, `/health`, busca por nome, concorrência entre modos, memória, isolamento de sessões e ausência de OOM na implantação Deeper. |
+| Capturas públicas | As imagens atuais dos READMEs são da busca por usuário na 0.4.0. As capturas reais 0.5.0 por nome/documento ainda não as substituíram. |
 
-O benchmark usa Linux x86_64, Python 3.12.12, Maigret 0.6.6, 20 conexões, um worker e fixture HTTP local com atraso de 5ms. Esses tempos e tamanhos de payload não preveem a latência de sites públicos; o Deeper não controla a resposta de plataformas externas. [`PERFORMANCE.md`](PERFORMANCE.md) registra o método e a amostra menor de 100 sites, na qual quatro eventos esparsos tiveram um payload incremental ligeiramente maior que a referência cumulativa.
+As verificações locais acima passaram; as etapas de provedor real e produção
+permanecem pendentes. Testes Maigret usam o motor real com
+HTTP local e perfis sintéticos. Testes Serper usam respostas controladas, não
+créditos ou contas reais. Fixtures no navegador verificam a interface; seus
+resultados não devem ser publicados como achados reais do provedor.
 
 ## Reprodução
 
+Use o ambiente de QA existente do projeto; ferramentas de navegador e build
+são externas ao desenvolvimento, sem novas dependências de runtime:
+
 ```sh
 .venv/bin/python -m pytest -q
+.venv/bin/python -m pytest -q tests/test_documents.py tests/test_name_jobs.py tests/test_name_app.py tests/test_document_ui.py
+docker compose config --quiet
 .venv/bin/python -m build --wheel
-LD_LIBRARY_PATH=/caminho/do/profile/guix/lib .venv/bin/python tests/verify_ui.py --browser /caminho/do/chromium
-.venv/bin/python scripts/benchmark.py --project /caminho/deeper --output /tmp/progress.json --runs 2 --sites 500
+.venv/bin/python tests/verify_ui.py --browser /caminho/do/chromium --output /tmp/deeper-username-qa
+.venv/bin/python tests/verify_documents_ui.py --browser /caminho/do/chromium --output /tmp/deeper-document-qa
 ```
 
-Execute o smoke test do wheel instalado em um venv novo com as dependências de runtime fixadas por hashes, a partir de uma pasta fora do repositório. `tests/verify_installation.py` verifica o caminho do módulo instalado, as versões do pacote e do motor, health, base oficial de sites, busca HTTP local, HTML, CSS e o JavaScript empacotado.
+Teste o wheel em ambiente novo fora do checkout com dependências de runtime
+fixadas por hashes. Confirme versão instalada, base Maigret, `/health`, HTML/CSS,
+os dois scripts de progresso, ícones dos fontes e arquivos de licença. O health
+verifica disponibilidade dos pacotes; não valida credenciais, créditos,
+conectividade ou cobertura do Serper.
 
-## Limitações
+Testes reais exigem `SERPER_API_KEY` configurada de forma privada e orçamento
+limitado de chamadas. Nunca imprima a credencial nem a inclua em relatórios,
+capturas, argumentos de comandos ou Git. Chave ausente deve produzir estado
+indisponível, nunca referências inventadas. Registre os resultados reais
+separados das fixtures antes de declarar sucesso com o provedor.
 
-- Sites públicos não foram consultados. Rede, bloqueios e respostas das plataformas podem dominar o tempo de busca. Uma busca fria ainda carrega a base do Maigret.
-- A suíte 0.3.0 foi executada em Python 3.12.12; Python 3.11 não foi revalidado nesta release. A validação da versão 0.2.0 é histórica e não substitui uma execução da 0.3.0 em Python 3.11.
-- Tarefas e cache permanecem em memória, são privados à sessão e expiram conforme o limite configurado. Execute uma única instância HTTP.
-- Verificações incompatíveis com o username ou que exijam protocolos não configurados podem ser ignoradas pelo Maigret e contadas entre os itens processados.
-- Windows não foi testado; a verificação SIGTERM é específica de Unix.
+## Limites desta evidência
+
+- Consulta com nome exato entre aspas e referência do índice não comprovam
+  identidade, conteúdo, MIME, disponibilidade ou completude. Tipos desconhecidos
+  permanecem não verificados; resposta vazia não comprova ausência.
+- O timeout do provedor é HTTP normal do `urllib` (12 segundos por padrão,
+  configurável de 1 a 30), não o watchdog do processo por usuário nem um prazo
+  absoluto. Respostas têm limite de 1 MiB, sem repetição automática.
+- A proteção de 100 chamadas por dia UTC é por processo e zera no reinício. Não
+  garante a cobrança de toda a conta nem controla outros clientes. Não há compra
+  de créditos ou recarga automática.
+- Os modos compartilham padrões de 2 workers/64 globais/2 por sessão, cache
+  privado de 60 segundos e retenção de concluídas de 900 segundos. Execute uma
+  instância HTTP. Limites por sessão controlam capacidade, não identidade de bots.
+- Benchmarks anteriores em [PERFORMANCE.md](PERFORMANCE.md) são medições locais
+  históricas por usuário. Não medem latência Serper, tamanho da imagem nova,
+  vazão em produção ou cobertura de sites públicos.
+- Suporte previsto a Python 3.11/3.12 e documentação Windows não comprovam teste
+  recente em todo sistema/interpretador. Registre as execuções reais; testes de
+  sinais Unix não comprovam comportamento Windows.
