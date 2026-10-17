@@ -6,29 +6,36 @@ Date: 17 October 2026. This release adds full-name/public-document references
 through keyless SecuritySearch (free Brave by default, optional free Google CSE),
 preserving Maigret 0.6.6 username mode. Local automated and browser checks passed,
 including bounded actual-provider observations and installed-wheel verification.
-Image and production qualification remain **pending**. No provider account or key is required.
+Image verification and bounded production browser, security, and memory checks
+also passed within the scope below. Live concurrency and sustained capacity were
+not established. No provider account or key is required.
 
-## Verified local checks and open release gates
+## Verified checks and production observations
 
 | Check | Evidence and scope |
 | --- | --- |
-| Full automated suite | 262 tests passed in 13.45 seconds; exit 0. Controlled provider/app/job/UI contracts do not establish external coverage. |
+| Full automated suite | Merged tree: 262 tests passed in 14.12 seconds; exit 0. Controlled provider/app/job/UI contracts do not establish external coverage. |
 | Static checks | Ruff, formatting, and Pyright passed on nine changed Python files; exit 0. |
 | Browser QA | Sandboxed Chromium passed at widths 320, 768, 1024, and 1440, with 200% text and Unicode boundaries. Sixteen native-form cases covered both engines with JavaScript enabled and disabled. Controlled fixtures verify behavior, not provider findings. |
 | Actual provider through local UI | Three bounded jobs through the real local application: Brave with quoted “GNU Guix”/PDF completed with 10 references; an accented full name with any file type completed with 10 references (private result contents not published); Google CSE with “GNU Guix”/PDF produced an honest unavailable error while retaining engine `google`. No paid fallback, automatic engine switch, page reload after initial result navigation, or browser errors were observed. |
 | Dependency advisories | Fresh `pip-audit` checked 68 locked packages: zero known advisories and zero skipped packages; exit 0. A point-in-time check, not proof of vulnerability absence. |
 | Compose and documentation | Parsing and rendered defaults passed: scheduling 2/64/2, cache 60 seconds, retention 900 seconds, provider 100/day and timeout 12 seconds, no provider key, private bind, read-only filesystem, dropped capabilities, PID limit 128, 512 MiB RAM / 1 GiB combined budget. TOML/version and local Markdown links passed. |
 | Installed replacement wheel | `deeper_maigret-0.5.0-py3-none-any.whl`, SHA-256 `b38f3ac1070511bdaa1c8309bd264684304a2a96ef123be81c71ea8298417c28`, passed verification outside the checkout from installed `site-packages` on Python 3.12.12 with Maigret 0.6.6. The database check found 10 sites; actual Maigret with synthetic local HTTP fixtures completed 3 checks, 1 inconclusive result, and 1 found profile. Health/version, HTML/CSP, installed assets, and native free-engine forms passed. These local fixtures are not public-site findings. |
-| Release image | Pending build and checks of the exact replacement image. Installed-wheel evidence does not qualify the container or deployment. |
-| Further real-provider coverage | Not established for DOCX, legitimate empty results, every filter/name, or sustained availability. The three observed jobs above are the actual integration evidence. |
-| Production qualification | Pending exact artifact/version, `/health`, name search, mixed-mode concurrency, memory budget, session isolation, and no OOM. The live link does not certify this release. |
+| Release image | Built on the backend host with Docker 26.1.5 using a 512 MiB RAM / 768 MiB combined build limit and 1 CPU. Source commit `af52f8623c2be4deb7f62bc187deff9b8eb3c5cf`; image ID `sha256:30a44f72adfdaaa51c11fa0d7239558a2241dbaeccd071caed4c75911b49fd35`; size 255,663,719 bytes. Verification inside the actual image passed with Python 3.12.15, Maigret 0.6.6, and installed `/opt/venv` site-packages: local synthetic Maigret 3 checks / 1 inconclusive / 1 profile, CSP, forms, assets, healthy container, and `OOMKilled=false`. Build limits are distinct from the unchanged runtime budget. |
+| Further real-provider coverage | Production DOCX success and unavailability are recorded below. Legitimate empty results, every filter/name, and sustained provider availability were not established. Provider outcomes are intermittent; a failure is not an empty successful search. |
+| Production activation and health | The image above was activated on the backend's existing private binding, preserving the IONOS front end and shared reverse-proxy route. Public HTTPS `/health` returned version 0.5.0 and status `ok`. Health alone does not qualify provider behavior or production capacity. |
+| Production provider and username checks | Sandboxed Chromium 153 submitted exactly four name jobs and one username job, with no retries: quoted “GNU Guix”/PDF Brave completed with 10 references; username `gnu-guix` completed 500/500 checks with six profiles; “GNU Guix”/DOCX Brave returned unavailable with zero references (an error, not an empty success); “GNU Guix”/PDF Google CSE completed with 10 references; a separately selected Google CSE “Creative Commons”/DOCX job completed with four references. Actual engine labels were retained, with no paid fallback or automatic switch. No page reloads after initial result navigation, browser errors, or external browser requests were observed. These counts are index/profile observations, not identity or document-content verification. |
+| Production security and session checks | HTTPS checks passed for CSP, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and session-cookie Secure/HttpOnly/SameSite=Strict flags. Another session received HTTP 404 from the private updates API. No cookie values are published. |
+| Mixed-mode scope | The same session accepted both modes, but the name job had already completed when the username job was submitted. No actual overlap, queued state, or sustained-capacity benchmark was observed. Automated tests cover scheduling and isolation contracts; this live run does not establish concurrency capacity. |
+| Production memory and health | 38 samples from 19:06:48 to 19:10:16 UTC on 17 October recorded a peak of 143.3 MiB within the 512 MiB runtime limit; every sample was healthy, with no OOM and zero restarts. The final 19:11:36 UTC idle check recorded 50.7 MiB, healthy, zero restarts, and no OOM. This is a bounded observation, not a long-duration or load benchmark. |
+| Transport preflight and deployment scope | The first 10-second health preflight timed out before any jobs; a 30-second preflight allowance worked without TLS or sandbox changes. No product defect was established. Only the Deeper backend changed; shared proxies were unchanged. The temporary candidate container and retired 0.4 container/image were removed by explicit identity; the 0.5 image was retained and only its release container remains running. The image source is the commit above; subsequent release edits are documentation only, with runtime and README unchanged. No further live jobs were submitted after the call budget was exhausted. |
 | Public screenshots | Actual 0.5.0 local UI in sandboxed Chromium: name/PDF/Brave form with consent unchecked, and ten real Brave “GNU Guix”/PDF index references. The form does not claim document findings for its entered name. Public results use a non-personal example; file types are inferred from URLs, with no document download or content/MIME verification. |
 
 The prior Serper candidate's 233-test baseline and installed-wheel/browser checks
 are historical, not qualification for replacement artifacts or deployment.
 Maigret fixtures use the real engine with local HTTP and synthetic profiles.
-Only the actual-provider row and its public results screenshot represent external
-provider observations; fixture results must not be presented as real findings.
+The actual-provider rows and public results screenshot represent external
+observations; fixture results must not be presented as real findings.
 
 ## Reproduction
 
